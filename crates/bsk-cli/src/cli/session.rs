@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use bsk_protocol::system::{BrowserStatusEntry, SessionStatusEntry};
-use bsk_protocol::tools::ReturnFailure;
+use bsk_protocol::tools::{ReturnFailure, SessionMode};
 use bsk_protocol::{ErrorCode, Method};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -68,6 +68,11 @@ pub struct SessionStartArgs {
     /// Open the Agent Window in the background without stealing focus.
     #[arg(long)]
     pub no_focus: bool,
+
+    /// Attach to the active tab in the last-focused browser window instead
+    /// of creating an isolated Agent Window.
+    #[arg(long, conflicts_with_all = ["width", "height", "no_focus"])]
+    pub attach_current_tab: bool,
 }
 
 /// Parse a `--width` / `--height` Agent Window dimension (CSS pixels).
@@ -105,6 +110,8 @@ struct StartParams {
     height: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focused: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<SessionMode>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,6 +193,11 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
             width: args.width,
             height: args.height,
             focused: args.no_focus.then_some(false),
+            mode: if args.attach_current_tab {
+                SessionMode::CurrentTab
+            } else {
+                SessionMode::AgentWindow
+            },
         },
     );
     waited.store(true, Ordering::SeqCst);
@@ -220,6 +232,7 @@ pub struct SessionStartOptions {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub focused: Option<bool>,
+    pub mode: SessionMode,
 }
 
 /// Start a session and open the Agent Window. Used by `session start` and `record start`.
@@ -232,6 +245,7 @@ pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartRe
             width: opts.width,
             height: opts.height,
             focused: opts.focused,
+            mode: (opts.mode != SessionMode::AgentWindow).then_some(opts.mode),
         }),
         SESSION_START_IPC_TIMEOUT,
     )

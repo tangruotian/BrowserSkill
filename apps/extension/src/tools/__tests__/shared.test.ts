@@ -6,6 +6,7 @@ import {
   lookupSession,
   parseBufferedReadBounds,
   resolveCdpAccessibleTargetTab,
+  resolveTargetTab,
 } from "../shared";
 
 function fakeAgentWindow() {
@@ -44,6 +45,35 @@ describe("lookupSession", () => {
     const ctx = await sm.start("aa11");
     const result = lookupSession(sm, { session_id: "aa11" }, "tool.test");
     expect(result).toBe(ctx);
+  });
+});
+
+describe("current-tab target scope", () => {
+  it("keeps default and explicit targeting fixed to the attached tab", async () => {
+    const sm = new SessionManager({
+      agentWindow: fakeAgentWindow(),
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 200, tabId: 7 }) },
+    });
+    const ctx = await sm.start("aa11", { mode: "current_tab" });
+    const api = {
+      get: vi.fn(
+        async (tabId: number) =>
+          ({
+            id: tabId,
+            windowId: 200,
+            active: tabId === 8,
+            url: `https://example.test/${tabId}`,
+          }) as chrome.tabs.Tab,
+      ),
+      query: vi.fn(),
+    };
+
+    await expect(resolveTargetTab(sm, ctx, undefined, api)).resolves.toMatchObject({ tabId: 7 });
+    await expect(resolveTargetTab(sm, ctx, 8, api)).resolves.toMatchObject({
+      code: "permission_denied",
+      data: { reason: "current_tab_scope" },
+    });
+    expect(api.query).not.toHaveBeenCalled();
   });
 });
 

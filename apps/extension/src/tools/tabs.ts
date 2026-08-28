@@ -241,13 +241,41 @@ export async function handleTabList(
     };
   }
 
+  if (ctx.mode === "current_tab") {
+    if (scope === "user") return { tabs: [] };
+    const allTabs = await api.query({});
+    if (signal?.aborted) return { code: "cancelled", message: "tab_list aborted" };
+    const attached = allTabs.find((tab) => tab.id === ctx.attachedTabId);
+    if (!attached || typeof attached.id !== "number") return { tabs: [] };
+    return {
+      tabs: [
+        {
+          tab_id: attached.id,
+          title: attached.title,
+          url: attached.url,
+          window_id: attached.windowId,
+          active: attached.active,
+          scope: "agent",
+        },
+      ],
+    };
+  }
+
   // Other sessions' Agent Windows must stay invisible to this session
   // (design §6: cross-session isolation). Build a set up-front so the
   // per-tab classification is O(1).
   const otherAgentWindowIds = new Set<number>();
+  const otherAttachedTabIds = new Set<number>();
   for (const s of manager.list()) {
-    if (s.sessionId !== params.session_id) {
+    if (s.sessionId !== params.session_id && s.mode === "agent_window") {
       otherAgentWindowIds.add(s.agentWindowId);
+    }
+    if (
+      s.sessionId !== params.session_id &&
+      s.mode === "current_tab" &&
+      s.attachedTabId !== undefined
+    ) {
+      otherAttachedTabIds.add(s.attachedTabId);
     }
   }
   const myAgentWindowId = ctx.agentWindowId;
@@ -257,6 +285,7 @@ export async function handleTabList(
   const tabs: TabInfo[] = [];
   for (const t of allTabs) {
     if (typeof t.id !== "number") continue;
+    if (otherAttachedTabIds.has(t.id)) continue;
     const winId = typeof t.windowId === "number" ? t.windowId : -1;
     if (otherAgentWindowIds.has(winId)) continue;
     const tabScope: "user" | "agent" = winId === myAgentWindowId ? "agent" : "user";
@@ -420,6 +449,13 @@ export async function handleTabCreate(
   const ctxOrErr = lookupSession(manager, params, "tab_create");
   if (isRpcError(ctxOrErr)) return ctxOrErr;
   const ctx = ctxOrErr;
+  if (ctx.mode === "current_tab") {
+    return rpcError(
+      "permission_denied",
+      "current_tab_scope",
+      "tab_create is unavailable because a current-tab session is fixed to one existing tab",
+    );
+  }
   const ab = aborted(deps.signal, "tab_create");
   if (ab) return ab;
 
@@ -475,6 +511,14 @@ async function authoriseAgentTab(
       "permission_denied",
       "borrow_conflict",
       `${toolName}: tab ${tabId} is borrowed by session ${otherBorrower}`,
+    );
+  }
+  if (ctx.mode === "current_tab") {
+    if (tab.id === ctx.attachedTabId) return tab;
+    return rpcError(
+      "permission_denied",
+      "current_tab_scope",
+      `${toolName}: tab ${tabId} is outside the fixed current-tab session scope`,
     );
   }
   if (tab.windowId === ctx.agentWindowId) {
@@ -634,7 +678,11 @@ async function validateBorrowTarget(
     };
   }
   for (const s of manager.list()) {
-    if (s.sessionId !== ctx.sessionId && s.agentWindowId === tab.windowId) {
+    if (
+      s.sessionId !== ctx.sessionId &&
+      s.mode === "agent_window" &&
+      s.agentWindowId === tab.windowId
+    ) {
       return rpcError(
         "permission_denied",
         "agent_window_scope",
@@ -771,6 +819,13 @@ export async function handleTabBorrow(
   const ctxOrErr = lookupSession(manager, params, "tab_borrow");
   if (isRpcError(ctxOrErr)) return ctxOrErr;
   const ctx = ctxOrErr;
+  if (ctx.mode === "current_tab") {
+    return rpcError(
+      "permission_denied",
+      "current_tab_scope",
+      "tab_borrow is unavailable because a current-tab session cannot expand its fixed scope",
+    );
+  }
   const bad = validatePositiveInt("tab_id", params.tab_id);
   if (bad) return bad;
   if (aborted(deps.signal, "tab_borrow")) {

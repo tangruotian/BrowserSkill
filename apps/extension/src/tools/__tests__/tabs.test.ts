@@ -101,6 +101,25 @@ describe("handleTabList", () => {
     if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
     expect(res.tabs.map((t) => t.url).sort()).toEqual(["chrome://newtab/", "https://example.com"]);
   });
+
+  it("returns only the fixed attached tab for a current-tab session", async () => {
+    const sm = new SessionManager({
+      agentWindow: fakeAgentWindow([100]),
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 200, tabId: 2 }) },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+    const tabs = fakeChromeTabsApi([
+      { windowId: 200, url: "https://sibling.example/" },
+      { windowId: 200, url: "https://attached.example/", active: true },
+    ]);
+
+    const res = await handleTabList(sm, { session_id: "aa11" }, tabs);
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.tabs).toEqual([
+      expect.objectContaining({ tab_id: 2, url: "https://attached.example/", scope: "agent" }),
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------

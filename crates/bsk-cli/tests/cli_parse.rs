@@ -275,6 +275,34 @@ fn session_start_window_size_defaults_to_none() {
     };
     assert!(args.width.is_none());
     assert!(args.height.is_none());
+    assert!(!args.attach_current_tab);
+}
+
+#[test]
+fn parses_session_start_attach_current_tab() {
+    use bsk::cli::session::{SessionCmd, SessionSub};
+    let cli = parse(&["bsk", "session", "start", "--attach-current-tab"]);
+    let Command::Session(SessionCmd {
+        sub: SessionSub::Start(args),
+    }) = cli.command
+    else {
+        panic!("expected session start subcommand");
+    };
+    assert!(args.attach_current_tab);
+}
+
+#[test]
+fn attach_current_tab_rejects_agent_window_options() {
+    assert!(
+        Cli::try_parse_from([
+            "bsk",
+            "session",
+            "start",
+            "--attach-current-tab",
+            "--no-focus",
+        ])
+        .is_err()
+    );
 }
 
 #[test]

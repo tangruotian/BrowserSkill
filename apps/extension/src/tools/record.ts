@@ -45,6 +45,8 @@ interface ActiveRecording {
   requestId: string;
   tabId: number;
   agentWindowId: number;
+  /** Present when recording is confined to a session's attached fixed tab. */
+  fixedTabId?: number;
   startUrl?: string;
   purpose?: string;
   steps: DraftTraceStep[];
@@ -294,6 +296,7 @@ async function findRecordingForTab(
     const windowId = tab.windowId;
     if (typeof windowId !== "number") return null;
     for (const recording of recordings.values()) {
+      if (recording.fixedTabId !== undefined) continue;
       if (!recording.settled && recording.agentWindowId === windowId) return recording;
     }
   } catch {
@@ -315,6 +318,7 @@ async function clearRearmTimersForRecording(
   deps: RecordDeps,
 ): Promise<void> {
   clearRearmTimer(recording.tabId);
+  if (recording.fixedTabId !== undefined) return;
   try {
     const tabs = await deps.tabsApi.query({ windowId: recording.agentWindowId });
     for (const tab of tabs) {
@@ -331,16 +335,18 @@ async function stopRecordingOnAllAgentTabs(
 ): Promise<void> {
   const stopMsg: RecordStopMessage = { type: RECORD_STOP, requestId: recording.requestId };
   let tabIds = [recording.tabId];
-  try {
-    const tabs = await deps.tabsApi.query({ windowId: recording.agentWindowId });
-    tabIds = [
-      ...new Set([
-        recording.tabId,
-        ...tabs.flatMap((tab) => (typeof tab.id === "number" ? [tab.id] : [])),
-      ]),
-    ];
-  } catch {
-    // Fall back to the current recording tab.
+  if (recording.fixedTabId === undefined) {
+    try {
+      const tabs = await deps.tabsApi.query({ windowId: recording.agentWindowId });
+      tabIds = [
+        ...new Set([
+          recording.tabId,
+          ...tabs.flatMap((tab) => (typeof tab.id === "number" ? [tab.id] : [])),
+        ]),
+      ];
+    } catch {
+      // Fall back to the current recording tab.
+    }
   }
 
   for (const tabId of tabIds) {
@@ -413,6 +419,7 @@ export function attachRecordTabListener(deps: RecordDeps = getDefaultDeps()): ()
     const windowId = tab.windowId;
     if (tabId === undefined || windowId === undefined) return;
     for (const recording of recordings.values()) {
+      if (recording.fixedTabId !== undefined) continue;
       if (recording.settled || recording.agentWindowId !== windowId) continue;
       scheduleRearmForTab(tabId, deps);
       return;
@@ -586,6 +593,7 @@ export async function handleRecordStart(
     requestId,
     tabId: target.tabId,
     agentWindowId: ctx.agentWindowId,
+    ...(ctx.mode === "current_tab" ? { fixedTabId: target.tabId } : {}),
     startUrl: navigateUrl,
     ...(params.purpose ? { purpose: params.purpose } : {}),
     steps: [],

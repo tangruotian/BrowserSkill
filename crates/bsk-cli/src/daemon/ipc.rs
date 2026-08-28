@@ -547,6 +547,8 @@ struct CliSessionStartParams {
     pub height: Option<u32>,
     #[serde(default)]
     pub focused: Option<bool>,
+    #[serde(default)]
+    pub mode: bsk_protocol::tools::SessionMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -641,6 +643,7 @@ async fn handle_session_start(state: &Arc<DaemonState>, params: Value) -> Result
             width: None,
             height: None,
             focused: None,
+            mode: bsk_protocol::tools::SessionMode::AgentWindow,
         }
     } else {
         serde_json::from_value(params).map_err(|err| RpcError {
@@ -670,6 +673,7 @@ async fn handle_session_start(state: &Arc<DaemonState>, params: Value) -> Result
         AgentWindowOptions {
             size: window_size,
             focused: params.focused,
+            mode: params.mode,
         },
         state.config.extension_connect_wait,
         DEFAULT_RPC_TIMEOUT,

@@ -3,7 +3,7 @@ import type { RpcError } from "@/transport/types";
 import { rpcError } from "./errors";
 import { clearRecordingForSession } from "./record";
 import { isRpcError } from "./shared";
-import { returnBorrowedTab, type TabManagementDeps } from "./tabs";
+import { chromeAgentOverlayResetApi, returnBorrowedTab, type TabManagementDeps } from "./tabs";
 
 /** Valid range for Agent Window dimensions in CSS pixels. */
 export const WINDOW_SIZE_MIN = 100;
@@ -47,6 +47,8 @@ export function validateWindowSize(
 export interface SessionStartParams {
   session_id: string;
   browser_instance_id?: string;
+  /** Defaults to the isolated Agent Window mode. */
+  mode?: "agent_window" | "current_tab";
   /** Optional Agent Window outer width in CSS pixels (100..=7680). */
   width?: number;
   /** Optional Agent Window outer height in CSS pixels (100..=7680). */
@@ -104,15 +106,32 @@ export async function handleSessionStart(
       message: "session.start requires session_id",
     };
   }
+  if (
+    params.mode !== undefined &&
+    params.mode !== "agent_window" &&
+    params.mode !== "current_tab"
+  ) {
+    return {
+      code: "invalid_params",
+      message: "session.start mode must be one of: agent_window, current_tab",
+    };
+  }
   const sizeOrErr = validateWindowSize(params.width, params.height);
   if (isRpcError(sizeOrErr)) return sizeOrErr;
+  if (params.mode === "current_tab" && (sizeOrErr !== undefined || params.focused !== undefined)) {
+    return {
+      code: "invalid_params",
+      message: "width, height, and focused only apply to agent_window sessions",
+    };
+  }
   try {
     const ctx = await manager.start(params.session_id, {
+      mode: params.mode ?? "agent_window",
       size: sizeOrErr,
       focused: params.focused,
       signal: deps.signal,
     });
-    return { agent_window_id: ctx.agentWindowId };
+    return ctx.mode === "agent_window" ? { agent_window_id: ctx.agentWindowId } : {};
   } catch (err) {
     if (err instanceof SessionStartCleanupError) {
       return rpcError("protocol_error", "cleanup_failed", err.message, {
@@ -232,6 +251,17 @@ export async function handleSessionStop(
 
   // Step 3: detach CDP sessions this session opened (no-op if none).
   await deps.cdp?.detachSession(params.session_id);
+
+  // An attached user tab survives session teardown, so explicitly remove
+  // the control/help/record overlay before forgetting which tab was bound.
+  if (ctx.mode === "current_tab" && ctx.attachedTabId !== undefined) {
+    const overlayReset = deps.tabManagement?.agentOverlayReset ?? chromeAgentOverlayResetApi;
+    try {
+      await overlayReset.resetAgentOverlays(ctx.attachedTabId, ctx.sessionId);
+    } catch (err) {
+      console.debug("[bsk session_stop] attached-tab overlay reset failed", err);
+    }
+  }
 
   // Step 4: close the Agent Window and drop the context.
   await manager.stop(params.session_id);

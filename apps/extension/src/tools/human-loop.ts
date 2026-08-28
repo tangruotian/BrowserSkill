@@ -347,6 +347,7 @@ async function findHelpForTab(
     const windowId = tab.windowId;
     if (typeof windowId !== "number") return null;
     for (const help of activeHelpRequests.values()) {
+      if (help.ctx.mode === "current_tab") continue;
       if (!help.settled && help.ctx.agentWindowId === windowId) return help;
     }
   } catch {

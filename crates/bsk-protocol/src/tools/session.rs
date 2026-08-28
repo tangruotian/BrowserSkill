@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::ErrorCode;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMode {
+    #[default]
+    AgentWindow,
+    CurrentTab,
+}
+
+impl SessionMode {
+    fn is_agent_window(&self) -> bool {
+        *self == Self::AgentWindow
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionStartParams {
     pub session_id: String,
@@ -20,6 +34,10 @@ pub struct SessionStartParams {
     /// extension's default (`true`) for compatibility with older clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused: Option<bool>,
+    /// Session target selection. The default keeps the isolated Agent Window
+    /// behaviour; `current_tab` binds the last-focused window's active tab.
+    #[serde(default, skip_serializing_if = "SessionMode::is_agent_window")]
+    pub mode: SessionMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -60,6 +78,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(defaulted.focused, None);
+        assert_eq!(defaulted.mode, SessionMode::AgentWindow);
 
         let background: SessionStartParams = serde_json::from_value(json!({
             "session_id": "aa11",
@@ -68,6 +87,17 @@ mod tests {
         .unwrap();
         assert_eq!(background.focused, Some(false));
         assert_eq!(serde_json::to_value(background).unwrap()["focused"], false);
+    }
+
+    #[test]
+    fn session_start_current_tab_mode_round_trips() {
+        let params: SessionStartParams = serde_json::from_value(json!({
+            "session_id": "aa11",
+            "mode": "current_tab"
+        }))
+        .unwrap();
+        assert_eq!(params.mode, SessionMode::CurrentTab);
+        assert_eq!(serde_json::to_value(params).unwrap()["mode"], "current_tab");
     }
 
     #[test]

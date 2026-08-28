@@ -88,6 +88,32 @@ describe("ToolDispatcher", () => {
     expect(create).toHaveBeenCalledWith("about:blank", { focused: false });
   });
 
+  it("attaches the current tab without creating an Agent Window", async () => {
+    const { transport, sent, deliver } = fakeTransport();
+    const create = vi.fn(async () => 4242);
+    const currentTab = {
+      getLastFocusedActiveTab: vi.fn(async () => ({ windowId: 50, tabId: 60 })),
+    };
+    const sessions = new SessionManager({
+      agentWindow: {
+        create,
+        remove: vi.fn(),
+        ensureActiveTab: vi.fn(async () => {}),
+      },
+      currentTab,
+    });
+    const dispatcher = new ToolDispatcher({ transport, sessions });
+    dispatcher.start();
+
+    deliver(makeRequest("tool.session_start", { session_id: "aa11", mode: "current_tab" }));
+    await flushMicrotasks();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(currentTab.getLastFocusedActiveTab).toHaveBeenCalledOnce();
+    expect(sessions.get("aa11")).toMatchObject({ mode: "current_tab", attachedTabId: 60 });
+    expect(sent).toEqual([{ id: "r-1", result: {} }]);
+  });
+
   it("routes tool.session_stop and replies with empty result", async () => {
     const { transport, sent, deliver } = fakeTransport();
     const sessions = new SessionManager({

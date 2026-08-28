@@ -11,10 +11,16 @@ export interface WindowRemovedListener {
   removeListener(cb: (windowId: number) => void): void;
 }
 
+export interface TabRemovedListener {
+  addListener(cb: (tabId: number) => void): void;
+  removeListener(cb: (tabId: number) => void): void;
+}
+
 export interface SessionEventHandlerOptions {
   manager: SessionManager;
   transport: Transport;
   windowEvents?: WindowRemovedListener;
+  tabEvents?: TabRemovedListener;
   cdp?: {
     detachSession(sessionId: string): Promise<void>;
   };
@@ -33,6 +39,13 @@ function chromeWindowEvents(): WindowRemovedListener {
   };
 }
 
+function chromeTabEvents(): TabRemovedListener {
+  return {
+    addListener: (cb) => chrome.tabs.onRemoved.addListener(cb),
+    removeListener: (cb) => chrome.tabs.onRemoved.removeListener(cb),
+  };
+}
+
 /**
  * Watch for the user closing an Agent Window. When that happens we:
  *  1. Drop the local SessionContext (without trying to close the window
@@ -47,6 +60,40 @@ export function attachSessionEventHandler(options: SessionEventHandlerOptions): 
 } {
   const { manager, transport, onSessionsChanged } = options;
   const events = options.windowEvents ?? chromeWindowEvents();
+  const tabEvents = options.tabEvents ?? (typeof chrome !== "undefined" ? chromeTabEvents() : null);
+
+  const dropClosedTarget = (
+    ctx: NonNullable<ReturnType<SessionManager["get"]>>,
+    reason: "user_closed_window" | "user_closed_tab",
+    returnFailures: Array<{ tab_id: number; code: string; message: string }> = [],
+  ): void => {
+    const detach = options.cdp
+      ? options.cdp.detachSession(ctx.sessionId).catch((err) => {
+          console.debug("[bh] session-event cdp detach failed", err);
+        })
+      : Promise.resolve();
+    void detach
+      .then(() => manager.stop(ctx.sessionId, { dropOnly: true }))
+      .then(() => {
+        onSessionsChanged?.();
+        const event: EventFrame = {
+          event: "session.window_closed",
+          payload: {
+            session_id: ctx.sessionId,
+            reason,
+            ...(returnFailures.length > 0 ? { return_failures: returnFailures } : {}),
+          },
+        };
+        try {
+          transport.send(event);
+        } catch (err) {
+          console.warn("[bh] could not push session.window_closed event", err);
+        }
+      })
+      .catch((err) => {
+        console.warn("[bh] session-event handler failed", err);
+      });
+  };
 
   const onRemoved = (windowId: number): void => {
     const ctx = manager.findByWindowId(windowId);
@@ -62,36 +109,21 @@ export function attachSessionEventHandler(options: SessionEventHandlerOptions): 
         returnFailures,
       );
     }
-    const detach = options.cdp
-      ? options.cdp.detachSession(ctx.sessionId).catch((err) => {
-          console.debug("[bh] session-event cdp detach failed", err);
-        })
-      : Promise.resolve();
-    void detach
-      .then(() => manager.stop(ctx.sessionId, { dropOnly: true }))
-      .then(() => {
-        onSessionsChanged?.();
-        const event: EventFrame = {
-          event: "session.window_closed",
-          payload: {
-            session_id: ctx.sessionId,
-            reason: "user_closed_window",
-            ...(returnFailures.length > 0 ? { return_failures: returnFailures } : {}),
-          },
-        };
-        try {
-          transport.send(event);
-        } catch (err) {
-          console.warn("[bh] could not push session.window_closed event", err);
-        }
-      })
-      .catch((err) => {
-        console.warn("[bh] session-event handler failed", err);
-      });
+    dropClosedTarget(ctx, "user_closed_window", returnFailures);
+  };
+
+  const onTabRemoved = (tabId: number): void => {
+    const ctx = manager.findByTabId(tabId);
+    if (!ctx) return;
+    dropClosedTarget(ctx, "user_closed_tab");
   };
 
   events.addListener(onRemoved);
+  tabEvents?.addListener(onTabRemoved);
   return {
-    dispose: () => events.removeListener(onRemoved),
+    dispose: () => {
+      events.removeListener(onRemoved);
+      tabEvents?.removeListener(onTabRemoved);
+    },
   };
 }

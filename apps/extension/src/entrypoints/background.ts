@@ -57,11 +57,21 @@ export default defineBackground(() => {
     controlModes.set(sessionId, mode);
     overlayGeneration += 1;
     const ctx = sessions.get(sessionId);
-    if (ctx) void pushOverlayStateForWindow(ctx.agentWindowId);
+    if (!ctx) return;
+    if (ctx.mode === "current_tab" && ctx.attachedTabId !== undefined) {
+      void pushOverlayStateToTab(
+        ctx.attachedTabId,
+        overlayStateForTarget(ctx.attachedTabId, ctx.agentWindowId),
+      );
+    } else {
+      void pushOverlayStateForWindow(ctx.agentWindowId);
+    }
   }
 
-  function overlayStateForWindow(windowId?: number): OverlayAgentStateMessage {
-    const ctx = typeof windowId === "number" ? sessions.findByWindowId(windowId) : null;
+  function overlayStateForTarget(tabId?: number, windowId?: number): OverlayAgentStateMessage {
+    const attachedCtx = typeof tabId === "number" ? sessions.findByTabId(tabId) : null;
+    const ctx =
+      attachedCtx ?? (typeof windowId === "number" ? sessions.findByWindowId(windowId) : null);
     if (!ctx) {
       return {
         type: OVERLAY_AGENT_STATE,
@@ -90,19 +100,32 @@ export default defineBackground(() => {
   }
 
   async function pushOverlayStateForWindow(windowId: number): Promise<void> {
-    const state = overlayStateForWindow(windowId);
     const tabs = await chrome.tabs.query({ windowId });
     await Promise.all(
       tabs.map((tab) =>
-        typeof tab.id === "number" ? pushOverlayStateToTab(tab.id, state) : Promise.resolve(),
+        typeof tab.id === "number"
+          ? pushOverlayStateToTab(tab.id, overlayStateForTarget(tab.id, windowId))
+          : Promise.resolve(),
       ),
     );
   }
 
   function pushAllAgentOverlayStates(): void {
-    const windowIds = new Set(sessions.list().map((ctx) => ctx.agentWindowId));
+    const windowIds = new Set(
+      sessions
+        .list()
+        .filter((ctx) => ctx.mode === "agent_window")
+        .map((ctx) => ctx.agentWindowId),
+    );
     for (const windowId of windowIds) {
       void pushOverlayStateForWindow(windowId);
+    }
+    for (const ctx of sessions.list()) {
+      if (ctx.mode !== "current_tab" || ctx.attachedTabId === undefined) continue;
+      void pushOverlayStateToTab(
+        ctx.attachedTabId,
+        overlayStateForTarget(ctx.attachedTabId, ctx.agentWindowId),
+      );
     }
   }
 
@@ -122,17 +145,21 @@ export default defineBackground(() => {
     setControlMode(sessionId, "control");
   }
 
-  function pushOverlayStateForAgentWindow(windowId: number): void {
-    if (!sessions.findByWindowId(windowId)) return;
-    void pushOverlayStateForWindow(windowId);
+  function pushOverlayStateForControlledTab(tabId: number, windowId: number): void {
+    const attached = sessions.findByTabId(tabId);
+    if (attached) {
+      void pushOverlayStateToTab(tabId, overlayStateForTarget(tabId, windowId));
+      return;
+    }
+    if (sessions.findByWindowId(windowId)) void pushOverlayStateForWindow(windowId);
   }
   chrome.tabs.onActivated.addListener((activeInfo) => {
-    pushOverlayStateForAgentWindow(activeInfo.windowId);
+    pushOverlayStateForControlledTab(activeInfo.tabId, activeInfo.windowId);
   });
-  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status !== "complete") return;
     if (typeof tab.windowId !== "number") return;
-    pushOverlayStateForAgentWindow(tab.windowId);
+    pushOverlayStateForControlledTab(tabId, tab.windowId);
   });
   // Re-sync the storage.session flag on SW startup so a previous SW's
   // stale `true` does not keep waking us on every page load until the
@@ -298,14 +325,17 @@ export default defineBackground(() => {
     if (!msg || typeof msg !== "object" || !("kind" in msg)) return false;
 
     if (msg.kind === OVERLAY_MSG_WHO_AM_I) {
+      const tabId = sender.tab?.id;
       const windowId = sender.tab?.windowId;
-      const ctx = typeof windowId === "number" ? sessions.findByWindowId(windowId) : null;
+      const ctx =
+        (typeof tabId === "number" ? sessions.findByTabId(tabId) : null) ??
+        (typeof windowId === "number" ? sessions.findByWindowId(windowId) : null);
       sendResponse({ sessionId: ctx?.sessionId ?? null });
       return false;
     }
 
     if (msg.kind === OVERLAY_MSG_READY) {
-      sendResponse(overlayStateForWindow(sender.tab?.windowId));
+      sendResponse(overlayStateForTarget(sender.tab?.id, sender.tab?.windowId));
       return false;
     }
 

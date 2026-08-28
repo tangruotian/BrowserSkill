@@ -155,13 +155,44 @@ export async function resolveTargetTab(
   tabId: number | undefined,
   api: ChromeTabsApi,
 ): Promise<ResolvedTargetTab | RpcError> {
-  if (tabId !== undefined) {
-    if (!Number.isSafeInteger(tabId) || tabId <= 0) {
+  if (tabId !== undefined && (!Number.isSafeInteger(tabId) || tabId <= 0)) {
+    return {
+      code: "invalid_params",
+      message: "tab_id must be a positive integer",
+    };
+  }
+  if (ctx.mode === "current_tab") {
+    const attachedTabId = ctx.attachedTabId;
+    if (attachedTabId === undefined) {
+      return { code: "protocol_error", message: "current-tab session has no attached tab" };
+    }
+    if (tabId !== undefined && tabId !== attachedTabId) {
+      return rpcError(
+        "permission_denied",
+        "current_tab_scope",
+        `tab ${tabId} is outside the fixed current-tab session scope`,
+      );
+    }
+    let attached: chrome.tabs.Tab;
+    try {
+      attached = await api.get(attachedTabId);
+    } catch (err) {
       return {
-        code: "invalid_params",
-        message: "tab_id must be a positive integer",
+        code: "not_found",
+        message: err instanceof Error ? err.message : `attached tab ${attachedTabId} not found`,
       };
     }
+    if (typeof attached.id !== "number" || typeof attached.windowId !== "number") {
+      return { code: "not_found", message: `attached tab ${attachedTabId} not found` };
+    }
+    return {
+      tabId: attached.id,
+      windowId: attached.windowId,
+      active: attached.active === true,
+      url: attached.url,
+    };
+  }
+  if (tabId !== undefined) {
     let tab: chrome.tabs.Tab;
     try {
       tab = await api.get(tabId);
@@ -175,6 +206,15 @@ export async function resolveTargetTab(
       return {
         code: "not_found",
         message: `tab ${tabId} not found`,
+      };
+    }
+    // Some embedders/tests provide a legacy lightweight SessionManager shape;
+    // production managers always expose findByTabId after protocol 1.1.
+    const attachedOwner = manager.findByTabId?.(tab.id);
+    if (attachedOwner && attachedOwner.sessionId !== ctx.sessionId) {
+      return {
+        code: "not_found",
+        message: `tab ${tabId} not found in session scope`,
       };
     }
     const owner = manager.findByWindowId(tab.windowId);
@@ -254,7 +294,7 @@ export function enforceCdpAccessibleTarget(
   return rpcError(
     "permission_denied",
     "restricted_tab_url",
-    `${toolName} cannot access tab ${target.tabId} because its URL is ${target.url}; navigate the Agent Window to a web page first`,
+    `${toolName} cannot access tab ${target.tabId} because its URL is ${target.url}; navigate the session target to a web page first`,
   );
 }
 
@@ -290,6 +330,7 @@ export async function resolveCdpAccessibleTargetTab(
   const restricted = enforceCdpAccessibleTarget(target, toolName);
   if (!restricted) return target;
   if (tabId !== undefined) return restricted;
+  if (ctx.mode === "current_tab") return restricted;
 
   const tabs = await api.query({ windowId: ctx.agentWindowId });
   for (const tab of tabs) {
@@ -313,6 +354,14 @@ export function enforceAgentWindow(
   target: { tabId: number; windowId: number },
   toolName: string,
 ): RpcError | null {
+  if (ctx.mode === "current_tab") {
+    if (target.tabId === ctx.attachedTabId) return null;
+    return rpcError(
+      "permission_denied",
+      "current_tab_scope",
+      `${toolName} can only act on the tab fixed when this session started`,
+    );
+  }
   if (target.windowId !== ctx.agentWindowId) {
     return rpcError(
       "permission_denied",

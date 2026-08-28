@@ -68,6 +68,38 @@ describe("attachSessionEventHandler", () => {
     ]);
   });
 
+  it("drops an attached session without closing the user's window when its tab closes", async () => {
+    const manager = new SessionManager({
+      agentWindow: {
+        create: vi.fn(async () => 4242),
+        remove: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => {}),
+      },
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 50, tabId: 60 }) },
+    });
+    await manager.start("aa11", { mode: "current_tab" });
+    const transport = fakeTransport();
+    const tabEvents = fakeWindowEvents();
+    const windowEvents = fakeWindowEvents();
+
+    attachSessionEventHandler({
+      manager,
+      transport,
+      tabEvents: tabEvents.api,
+      windowEvents: windowEvents.api,
+    });
+    tabEvents.emit(60);
+    for (let i = 0; i < 4; i += 1) await Promise.resolve();
+
+    expect(manager.has("aa11")).toBe(false);
+    expect(transport.sent).toEqual([
+      {
+        event: "session.window_closed",
+        payload: { session_id: "aa11", reason: "user_closed_tab" },
+      },
+    ]);
+  });
+
   it("reports borrowed tabs as return failures when the Agent Window was already closed", async () => {
     const manager = new SessionManager({
       agentWindow: {

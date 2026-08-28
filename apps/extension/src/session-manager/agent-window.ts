@@ -18,6 +18,17 @@ export interface AgentWindowApi {
   ensureActiveTab(windowId: number, url: string): Promise<void>;
 }
 
+/** Fixed browser tab selected when a session attaches to the current tab. */
+export interface CurrentTabTarget {
+  windowId: number;
+  tabId: number;
+}
+
+/** Browser lookup kept injectable so current-tab startup is unit-testable. */
+export interface CurrentTabApi {
+  getLastFocusedActiveTab(): Promise<CurrentTabTarget>;
+}
+
 /** Creation hints for a new Agent Window. */
 export interface AgentWindowCreateOptions {
   /** Optional outer size in CSS pixels. */
@@ -59,5 +70,22 @@ export const chromeAgentWindowApi: AgentWindowApi = {
       return;
     }
     await chrome.tabs.create({ windowId, url, active: true });
+  },
+};
+
+export const chromeCurrentTabApi: CurrentTabApi = {
+  async getLastFocusedActiveTab(): Promise<CurrentTabTarget> {
+    const win = await chrome.windows.getLastFocused({
+      populate: true,
+      windowTypes: ["normal"],
+    });
+    if (typeof win.id !== "number") {
+      throw new Error("[bh] chrome.windows.getLastFocused returned no window id");
+    }
+    const tab = win.tabs?.find((candidate) => candidate.active && typeof candidate.id === "number");
+    if (!tab || typeof tab.id !== "number") {
+      throw new Error(`[bh] no active tab in last-focused window ${win.id}`);
+    }
+    return { windowId: win.id, tabId: tab.id };
   },
 };

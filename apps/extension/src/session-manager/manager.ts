@@ -1,9 +1,21 @@
-import { AGENT_WINDOW_HOME, type AgentWindowApi, chromeAgentWindowApi } from "./agent-window";
+import {
+  AGENT_WINDOW_HOME,
+  type AgentWindowApi,
+  type CurrentTabApi,
+  chromeAgentWindowApi,
+  chromeCurrentTabApi,
+} from "./agent-window";
 import { RefStore } from "./ref-store";
+
+export type SessionMode = "agent_window" | "current_tab";
 
 export interface SessionContext {
   sessionId: string;
+  mode: SessionMode;
+  /** Controlled window id. Kept under the legacy name for existing Agent Window tools. */
   agentWindowId: number;
+  /** Fixed target for current-tab sessions; absent for Agent Window sessions. */
+  attachedTabId?: number;
   refStore: RefStore;
   borrowedTabs: Map<number, BorrowedTab>;
   createdAtMs: number;
@@ -22,11 +34,14 @@ export interface BorrowReservation {
 
 export interface SessionManagerOptions {
   agentWindow?: AgentWindowApi;
+  currentTab?: CurrentTabApi;
   now?: () => number;
 }
 
 /** Options for starting a session's Agent Window. */
 export interface SessionStartOptions {
+  /** Defaults to the isolated Agent Window mode for backward compatibility. */
+  mode?: SessionMode;
   /** Optional Agent Window outer size in CSS pixels. */
   size?: { width: number; height: number };
   /** Defaults to true so existing clients keep visible Agent Windows. */
@@ -79,13 +94,17 @@ function throwIfSessionStartAborted(signal: AbortSignal | undefined): void {
  */
 export class SessionManager {
   private readonly sessions = new Map<string, SessionContext>();
+  /** Contains Agent Windows only; attached user windows must never be treated as isolated. */
   private readonly windowIndex = new Map<number, string>();
+  private readonly attachedTabIndex = new Map<number, string>();
   private readonly borrowReservations = new Map<number, string>();
   private readonly agentWindow: AgentWindowApi;
+  private readonly currentTab: CurrentTabApi;
   private readonly now: () => number;
 
   constructor(options: SessionManagerOptions = {}) {
     this.agentWindow = options.agentWindow ?? chromeAgentWindowApi;
+    this.currentTab = options.currentTab ?? chromeCurrentTabApi;
     this.now = options.now ?? Date.now;
   }
 
@@ -99,6 +118,11 @@ export class SessionManager {
 
   findByWindowId(windowId: number): SessionContext | null {
     const id = this.windowIndex.get(windowId);
+    return id ? (this.sessions.get(id) ?? null) : null;
+  }
+
+  findByTabId(tabId: number): SessionContext | null {
+    const id = this.attachedTabIndex.get(tabId);
     return id ? (this.sessions.get(id) ?? null) : null;
   }
 
@@ -116,6 +140,8 @@ export class SessionManager {
    * Returns the borrowing session id when applicable, otherwise null.
    */
   findBorrowingSession(tabId: number, currentSessionId: string | null): string | null {
+    const attachedBy = this.attachedTabIndex.get(tabId);
+    if (attachedBy && attachedBy !== currentSessionId) return attachedBy;
     for (const ctx of this.sessions.values()) {
       if (ctx.sessionId === currentSessionId) continue;
       if (ctx.borrowedTabs.has(tabId)) return ctx.sessionId;
@@ -174,9 +200,38 @@ export class SessionManager {
     }
     throwIfSessionStartAborted(opts.signal);
 
+    if (opts.mode === "current_tab") {
+      const target = await this.currentTab.getLastFocusedActiveTab();
+      throwIfSessionStartAborted(opts.signal);
+      const attachedBy = this.attachedTabIndex.get(target.tabId);
+      if (attachedBy) {
+        throw new Error(`[bh] tab ${target.tabId} is already attached by session ${attachedBy}`);
+      }
+      const borrowedBy = this.findBorrowingSession(target.tabId, sessionId);
+      if (borrowedBy) {
+        throw new Error(`[bh] tab ${target.tabId} is borrowed by session ${borrowedBy}`);
+      }
+      const agentOwner = this.windowIndex.get(target.windowId);
+      if (agentOwner) {
+        throw new Error(`[bh] current tab belongs to Agent Window owned by session ${agentOwner}`);
+      }
+      const ctx: SessionContext = {
+        sessionId,
+        mode: "current_tab",
+        agentWindowId: target.windowId,
+        attachedTabId: target.tabId,
+        refStore: new RefStore(),
+        borrowedTabs: new Map(),
+        createdAtMs: this.now(),
+      };
+      this.sessions.set(sessionId, ctx);
+      this.attachedTabIndex.set(target.tabId, sessionId);
+      return ctx;
+    }
+
     let windowId: number | null = null;
     try {
-      const { signal: _signal, ...createOptions } = opts;
+      const { signal: _signal, mode: _mode, ...createOptions } = opts;
       windowId = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
       throwIfSessionStartAborted(opts.signal);
       await this.agentWindow.ensureActiveTab(windowId, AGENT_WINDOW_HOME);
@@ -184,6 +239,7 @@ export class SessionManager {
 
       const ctx: SessionContext = {
         sessionId,
+        mode: "agent_window",
         agentWindowId: windowId,
         refStore: new RefStore(),
         borrowedTabs: new Map(),
@@ -217,11 +273,12 @@ export class SessionManager {
   ): Promise<SessionContext | null> {
     const ctx = this.sessions.get(sessionId);
     if (!ctx) return null;
-    if (!options.dropOnly) {
+    if (ctx.mode === "agent_window" && !options.dropOnly) {
       await this.agentWindow.remove(ctx.agentWindowId);
     }
     this.sessions.delete(sessionId);
-    this.windowIndex.delete(ctx.agentWindowId);
+    if (ctx.mode === "agent_window") this.windowIndex.delete(ctx.agentWindowId);
+    if (ctx.attachedTabId !== undefined) this.attachedTabIndex.delete(ctx.attachedTabId);
     return ctx;
   }
 

@@ -34,6 +34,7 @@ describe("SessionManager", () => {
     expect(aw.ensureActiveTabMock).toHaveBeenCalledOnce();
     expect(aw.ensureActiveTabMock).toHaveBeenCalledWith(100, "about:blank");
     expect(ctx.sessionId).toBe("aa11");
+    expect(ctx.mode).toBe("agent_window");
     expect(ctx.agentWindowId).toBe(100);
     expect(ctx.createdAtMs).toBe(1700000000000);
     expect(ctx.refStore.isEmpty()).toBe(true);
@@ -139,6 +140,63 @@ describe("SessionManager", () => {
     await sm.stop("aa11", { dropOnly: true });
     expect(aw.removeMock).not.toHaveBeenCalled();
     expect(sm.has("aa11")).toBe(false);
+  });
+
+  it("attaches the last-focused active tab without creating a window", async () => {
+    const aw = fakeAgentWindow();
+    const currentTab = {
+      getLastFocusedActiveTab: vi.fn(async () => ({ windowId: 55, tabId: 77 })),
+    };
+    const sm = new SessionManager({ agentWindow: aw, currentTab, now: () => 1700000000000 });
+
+    const ctx = await sm.start("aa11", { mode: "current_tab" });
+
+    expect(currentTab.getLastFocusedActiveTab).toHaveBeenCalledOnce();
+    expect(aw.createMock).not.toHaveBeenCalled();
+    expect(ctx).toMatchObject({
+      sessionId: "aa11",
+      mode: "current_tab",
+      agentWindowId: 55,
+      attachedTabId: 77,
+      createdAtMs: 1700000000000,
+    });
+    expect(sm.findByWindowId(55)).toBeNull();
+    expect(sm.findByTabId(77)).toBe(ctx);
+  });
+
+  it("stopping an attached session preserves the user's tab and window", async () => {
+    const aw = fakeAgentWindow();
+    const sm = new SessionManager({
+      agentWindow: aw,
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 55, tabId: 77 }) },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+
+    await sm.stop("aa11");
+
+    expect(aw.removeMock).not.toHaveBeenCalled();
+    expect(sm.findByTabId(77)).toBeNull();
+  });
+
+  it("rejects attaching a tab already controlled by another session", async () => {
+    const currentTab = { getLastFocusedActiveTab: async () => ({ windowId: 55, tabId: 77 }) };
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow(), currentTab });
+    await sm.start("aa11", { mode: "current_tab" });
+
+    await expect(sm.start("bb22", { mode: "current_tab" })).rejects.toThrow(
+      /already attached by session aa11/,
+    );
+  });
+
+  it("treats an attached tab as reserved from other sessions", async () => {
+    const sm = new SessionManager({
+      agentWindow: fakeAgentWindow(),
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 55, tabId: 77 }) },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+
+    expect(sm.findBorrowingSession(77, "bb22")).toBe("aa11");
+    expect(sm.findBorrowingSession(77, "aa11")).toBeNull();
   });
 
   it("stopAll() drops every session and returns their ids", async () => {

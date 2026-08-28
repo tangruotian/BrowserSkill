@@ -28,6 +28,9 @@ https://github.com/user-attachments/assets/db782c92-b1d4-4aae-a255-039675937a90
   into, without separate test accounts.
 - **Keep working uninterrupted**: browser tasks run in a separate, visible
   Agent Window, so you can keep using your own browser.
+- **Explicitly control the current tab**: `bsk session start --attach-current-tab`
+  skips Agent Window creation and fixes the session to the tab active at start;
+  stopping the session preserves the user's tab and window.
 - **Support any Agent**: any Agent that can call a shell can use BrowserSkill
   through the `bsk` CLI, with no lock-in to a specific model, Agent framework, or
   harness.

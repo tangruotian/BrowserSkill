@@ -28,6 +28,14 @@
       "format": "uint32",
       "minimum": 0.0
     },
+    "mode": {
+      "description": "Session target selection. The default keeps the isolated Agent Window behaviour; `current_tab` binds the last-focused window's active tab.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SessionMode"
+        }
+      ]
+    },
     "session_id": {
       "type": "string"
     },
@@ -39,6 +47,15 @@
       ],
       "format": "uint32",
       "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "SessionMode": {
+      "type": "string",
+      "enum": [
+        "agent_window",
+        "current_tab"
+      ]
     }
   }
 }

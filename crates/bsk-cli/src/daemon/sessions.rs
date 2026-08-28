@@ -10,7 +10,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use bsk_protocol::system::{BrowserStatusEntry, SessionStatusEntry};
 use bsk_protocol::tools::{
-    SessionStartParams, SessionStartResult, SessionStopParams, SessionStopResult,
+    SessionMode, SessionStartParams, SessionStartResult, SessionStopParams, SessionStopResult,
 };
 use bsk_protocol::{Frame, RequestFrame, ResponseBody, RpcError, RpcId};
 use rand::Rng;
@@ -389,6 +389,21 @@ pub enum StopSessionError {
 /// false `IdExhausted` failure at well below 10⁻¹⁵ even with thousands
 /// of live sessions.
 const SESSION_ID_MAX_RESERVE_ATTEMPTS: u32 = 64;
+const CURRENT_TAB_MIN_PROTOCOL: &str = "1.1";
+
+fn protocol_at_least(actual: &str, minimum: &str) -> bool {
+    fn major_minor(value: &str) -> Option<(u64, u64)> {
+        let mut parts = value.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next().unwrap_or("0").parse().ok()?;
+        Some((major, minor))
+    }
+
+    match (major_minor(actual), major_minor(minimum)) {
+        (Some(actual), Some(minimum)) => actual >= minimum,
+        _ => false,
+    }
+}
 
 /// Agent Window creation hints forwarded to the extension on
 /// `tool.session_start`. `None` fields keep the extension-side defaults
@@ -399,6 +414,8 @@ pub struct AgentWindowOptions {
     pub size: Option<(u32, u32)>,
     /// Optional focus hint (`None` = extension default: focused).
     pub focused: Option<bool>,
+    /// Target selection; defaults to a newly-created isolated Agent Window.
+    pub mode: SessionMode,
 }
 
 /// Ask the chosen browser to create a fresh Agent Window for a brand-new
@@ -433,6 +450,21 @@ pub async fn start_session(
                 instance_ids,
             },
         })?;
+    if window.mode == SessionMode::CurrentTab
+        && !protocol_at_least(&client.extension_protocol_version, CURRENT_TAB_MIN_PROTOCOL)
+    {
+        return Err(StartSessionError::ExtensionError(RpcError {
+            code: bsk_protocol::ErrorCode::InvalidParams,
+            message: format!(
+                "connected extension protocol {} does not support current_tab sessions; upgrade it to protocol {} or newer",
+                client.extension_protocol_version, CURRENT_TAB_MIN_PROTOCOL
+            ),
+            data: Some(serde_json::json!({
+                "extension_protocol_version": client.extension_protocol_version,
+                "required_protocol_version": CURRENT_TAB_MIN_PROTOCOL,
+            })),
+        }));
+    }
     let session_id = sessions
         .reserve_id(client.id.clone(), SESSION_ID_MAX_RESERVE_ATTEMPTS, now_ms)
         .ok_or(StartSessionError::IdExhausted)?;
@@ -442,6 +474,7 @@ pub async fn start_session(
         width: window.size.map(|(width, _)| width),
         height: window.size.map(|(_, height)| height),
         focused: window.focused,
+        mode: window.mode,
     };
     let rpc_id = next_rpc_id("sess-start");
     let request = RequestFrame {
@@ -612,4 +645,18 @@ fn drop_session_local(
 ) {
     queues.remove(session_id);
     interrupts.drop_session(session_id);
+}
+
+#[cfg(test)]
+mod current_tab_protocol_tests {
+    use super::protocol_at_least;
+
+    #[test]
+    fn compares_protocol_major_and_minor() {
+        assert!(protocol_at_least("1.1", "1.1"));
+        assert!(protocol_at_least("1.2", "1.1"));
+        assert!(protocol_at_least("2.0", "1.1"));
+        assert!(!protocol_at_least("1.0", "1.1"));
+        assert!(!protocol_at_least("invalid", "1.1"));
+    }
 }

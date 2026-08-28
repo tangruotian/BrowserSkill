@@ -221,4 +221,29 @@ describe("handleSessionStop with auto-return", () => {
     await handleSessionStop(sm, { session_id: "aa11" }, { tabManagement: { tabs, windows } });
     expect(ctx.refStore.isEmpty()).toBe(true);
   });
+
+  it("resets overlays but preserves the tab and window for current-tab sessions", async () => {
+    const aw = fakeAgentWindow([100]);
+    const sm = new SessionManager({
+      agentWindow: aw,
+      currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 200, tabId: 7 }) },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+    const agentOverlayReset = {
+      resetAgentOverlays: vi.fn(async () => {}),
+    } satisfies AgentOverlayResetApi;
+
+    const result = await handleSessionStop(
+      sm,
+      { session_id: "aa11" },
+      {
+        tabManagement: { agentOverlayReset },
+      },
+    );
+
+    expect("code" in result).toBe(false);
+    expect(agentOverlayReset.resetAgentOverlays).toHaveBeenCalledWith(7, "aa11");
+    expect(aw.remove).not.toHaveBeenCalled();
+    expect(sm.has("aa11")).toBe(false);
+  });
 });
