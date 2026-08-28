@@ -81,6 +81,7 @@ type DispatcherCdpRunner = CdpRunner &
   NetworkCdpRunner &
   EmulateCdpRunner & {
     detachSession(sessionId: string): Promise<void>;
+    releaseSessionTab?(sessionId: string, tabId: number): Promise<void>;
   };
 
 interface HoverLatch {
@@ -295,7 +296,10 @@ export class ToolDispatcher {
       case "tool.tab_list":
         return handleTabList(this.sessions, req.params as TabListParams, chromeTabsApi, signal);
       case "tool.tab_create":
-        return handleTabCreate(this.sessions, req.params as TabCreateParams, { signal });
+        return handleTabCreate(this.sessions, req.params as TabCreateParams, {
+          signal,
+          cdp: this.cdp,
+        });
       case "tool.tab_close":
         return this.withHoverReleaseForRequest(
           req.params as TabCloseParams,

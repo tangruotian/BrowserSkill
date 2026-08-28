@@ -557,6 +557,10 @@ struct CliSessionStartResult {
     pub browser_instance_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_window_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attached_tab_id: Option<i64>,
+    #[serde(default)]
+    pub fallback_created: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -685,6 +689,8 @@ async fn handle_session_start(state: &Arc<DaemonState>, params: Value) -> Result
                 session_id: session.id.0.clone(),
                 browser_instance_id: session.browser_id.0.clone(),
                 agent_window_id: session.agent_window_id,
+                attached_tab_id: session.attached_tab_id,
+                fallback_created: session.fallback_created,
             };
             Ok(serde_json::to_value(result).unwrap_or(Value::Null))
         }

@@ -542,4 +542,20 @@ describe("ChromiumCdp", () => {
     expect(api.detach).toHaveBeenLastCalledWith({ tabId: 1 });
     expect(cdp.isAttached(1)).toBe(false);
   });
+
+  it("releaseSessionTab detaches only after the last owner leaves", async () => {
+    const { api } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+    await cdp.ensureAttached(1);
+    cdp.trackSessionTab("aa11", 1);
+    cdp.trackSessionTab("bb22", 1);
+
+    await cdp.releaseSessionTab("aa11", 1);
+    expect(cdp.isAttached(1)).toBe(true);
+    expect(api.detach).not.toHaveBeenCalled();
+
+    await cdp.releaseSessionTab("bb22", 1);
+    expect(cdp.isAttached(1)).toBe(false);
+    expect(api.detach).toHaveBeenCalledWith({ tabId: 1 });
+  });
 });

@@ -204,6 +204,7 @@ async fn cancel_forwards_to_extension_when_tool_is_inflight() {
                     Method::ToolSessionStart => {
                         let result = SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         };
                         let reply = ResponseFrame {
                             id: req.id,
@@ -427,6 +428,7 @@ async fn cancel_arriving_during_promote_critical_section_keeps_request_cancel_in
                     Method::ToolSessionStart => {
                         let result = SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         };
                         let reply = ResponseFrame {
                             id: req.id,
@@ -626,6 +628,7 @@ async fn cancel_keeps_session_busy_until_delayed_extension_cleanup_finishes() {
                     Method::ToolSessionStart => {
                         let result = SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         };
                         let reply = ResponseFrame {
                             id: req.id,

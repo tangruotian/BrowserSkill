@@ -7,6 +7,7 @@
 // handlers (review parity).
 
 import type { DialogCursor } from "@/browser-driver/chromium-cdp";
+import { cdpBlockedUrlReason } from "@/session-manager/agent-window";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import { normaliseRef } from "@/session-manager/ref-store";
 import type { ConsoleResult, JavaScriptDialogInfo, RpcError } from "@/transport/types";
@@ -257,28 +258,7 @@ export { normaliseRef };
 
 export type ToolEffect = "passive_read" | "transient_input" | "browser_mutation";
 
-const CDP_BLOCKED_PROTOCOLS = new Set([
-  "chrome:",
-  "chrome-extension:",
-  "devtools:",
-  "edge:",
-  "brave:",
-  "vivaldi:",
-  "opera:",
-]);
-
-export function cdpBlockedUrlReason(url: string | undefined): string | null {
-  if (!url) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  if (CDP_BLOCKED_PROTOCOLS.has(parsed.protocol)) return parsed.protocol;
-  if (parsed.protocol === "about:" && parsed.pathname !== "blank") return "about:";
-  return null;
-}
+export { cdpBlockedUrlReason };
 
 /**
  * Page CDP tools cannot inspect browser/extension internal pages. Check this

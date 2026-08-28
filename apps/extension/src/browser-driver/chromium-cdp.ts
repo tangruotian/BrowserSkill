@@ -353,6 +353,16 @@ export class ChromiumCdp {
     this.tabOwners.set(tabId, owners);
   }
 
+  /** Release one session's ownership and detach when no session still owns the tab. */
+  async releaseSessionTab(sessionId: string, tabId: number): Promise<void> {
+    const owners = this.tabOwners.get(tabId);
+    if (!owners) return;
+    owners.delete(sessionId);
+    if (owners.size > 0) return;
+    this.tabOwners.delete(tabId);
+    await this.detach(tabId);
+  }
+
   /** Subscribe to all CDP events. Returned disposable removes the listener. */
   onEvent(handler: (source: chrome.debugger.Debuggee, method: string, params: unknown) => void): {
     dispose(): void;

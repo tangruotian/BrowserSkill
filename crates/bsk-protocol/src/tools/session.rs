@@ -40,10 +40,14 @@ pub struct SessionStartParams {
     pub mode: SessionMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionStartResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_window_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attached_tab_id: Option<i64>,
+    #[serde(default)]
+    pub fallback_created: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -98,6 +102,21 @@ mod tests {
         .unwrap();
         assert_eq!(params.mode, SessionMode::CurrentTab);
         assert_eq!(serde_json::to_value(params).unwrap()["mode"], "current_tab");
+    }
+
+    #[test]
+    fn session_start_result_reports_current_tab_fallback() {
+        let result: SessionStartResult = serde_json::from_value(json!({
+            "attached_tab_id": 88,
+            "fallback_created": true
+        }))
+        .unwrap();
+        assert_eq!(result.agent_window_id, None);
+        assert_eq!(result.attached_tab_id, Some(88));
+        assert!(result.fallback_created);
+        let encoded = serde_json::to_value(result).unwrap();
+        assert_eq!(encoded["attached_tab_id"], 88);
+        assert_eq!(encoded["fallback_created"], true);
     }
 
     #[test]

@@ -159,6 +159,7 @@ async fn session_user_interrupt_event_cancels_inflight_with_user_aborted() {
                     Method::ToolSessionStart => {
                         let result = SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         };
                         let reply = ResponseFrame {
                             id: req.id,
@@ -320,6 +321,7 @@ async fn user_interrupt_rejects_next_mutating_tool_call_when_session_was_idle() 
                 if req.method == Method::ToolSessionStart {
                     let result = SessionStartResult {
                         agent_window_id: Some(1),
+                        ..SessionStartResult::default()
                     };
                     let reply = ResponseFrame {
                         id: req.id,
@@ -448,6 +450,7 @@ async fn read_only_tool_passes_through_without_consuming_interrupt_marker() {
                     Method::ToolSessionStart => ResponseBody::Ok(
                         serde_json::to_value(SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         })
                         .unwrap(),
                     ),
@@ -606,6 +609,7 @@ async fn user_interrupt_marker_survives_long_delay_before_next_tool() {
                     Method::ToolSessionStart => ResponseBody::Ok(
                         serde_json::to_value(SessionStartResult {
                             agent_window_id: Some(1),
+                            ..SessionStartResult::default()
                         })
                         .unwrap(),
                     ),

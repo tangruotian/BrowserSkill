@@ -1,6 +1,6 @@
 //! `bsk tab …` subcommands. M6.1 landed `list`; M8 adds create / close /
-//! select / borrow / return for Agent Window tab management and the
-//! user-tab borrow ↔ return loop.
+//! select / borrow / return for session tab management and the user-tab
+//! borrow ↔ return loop.
 
 use std::path::PathBuf;
 
@@ -28,7 +28,7 @@ pub struct TabCmd {
 pub enum TabSub {
     /// List tabs visible to the session, filtered by scope.
     List(TabListArgs),
-    /// Open a new tab inside the session's Agent Window.
+    /// Open a work tab; current-tab sessions rebind their fixed target to it.
     Create(TabCreateArgs),
     /// Close a tab in the session's Agent Window.
     Close(TabCloseArgs),
@@ -77,13 +77,13 @@ pub struct TabCreateArgs {
     /// Session id (must be active).
     #[arg(long)]
     pub session: String,
-    /// Destination URL (default `chrome://newtab/`).
+    /// Destination URL (current-tab default: `about:blank`).
     #[arg(long)]
     pub url: Option<String>,
     /// Open as a *background* tab (default focuses the new tab).
     #[arg(long = "no-active", action = clap::ArgAction::SetTrue)]
     pub no_active: bool,
-    /// Insertion index within the Agent Window's tab strip.
+    /// Insertion index within the controlled window's tab strip.
     #[arg(long)]
     pub index: Option<i32>,
 }

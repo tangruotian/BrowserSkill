@@ -9,6 +9,17 @@
         "null"
       ],
       "format": "int64"
+    },
+    "attached_tab_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
+    "fallback_created": {
+      "default": false,
+      "type": "boolean"
     }
   }
 }

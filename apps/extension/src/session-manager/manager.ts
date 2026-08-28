@@ -1,7 +1,10 @@
 import {
   AGENT_WINDOW_HOME,
   type AgentWindowApi,
+  CURRENT_TAB_WORK_HOME,
   type CurrentTabApi,
+  type CurrentTabTarget,
+  cdpBlockedUrlReason,
   chromeAgentWindowApi,
   chromeCurrentTabApi,
 } from "./agent-window";
@@ -16,6 +19,8 @@ export interface SessionContext {
   agentWindowId: number;
   /** Fixed target for current-tab sessions; absent for Agent Window sessions. */
   attachedTabId?: number;
+  /** Whether startup replaced a restricted active tab with a new work tab. */
+  fallbackCreated: boolean;
   refStore: RefStore;
   borrowedTabs: Map<number, BorrowedTab>;
   createdAtMs: number;
@@ -130,6 +135,43 @@ export class SessionManager {
     return Array.from(this.sessions.values());
   }
 
+  private assertCurrentTabAvailable(target: CurrentTabTarget, sessionId: string): void {
+    const attachedBy = this.attachedTabIndex.get(target.tabId);
+    if (attachedBy && attachedBy !== sessionId) {
+      throw new Error(`[bh] tab ${target.tabId} is already attached by session ${attachedBy}`);
+    }
+    const borrowedBy = this.findBorrowingSession(target.tabId, sessionId);
+    if (borrowedBy) {
+      throw new Error(`[bh] tab ${target.tabId} is borrowed by session ${borrowedBy}`);
+    }
+    const agentOwner = this.windowIndex.get(target.windowId);
+    if (agentOwner) {
+      throw new Error(`[bh] current tab belongs to Agent Window owned by session ${agentOwner}`);
+    }
+  }
+
+  /** Rebind a current-tab session to one newly created tab in the same user window. */
+  rebindCurrentTab(sessionId: string, target: CurrentTabTarget): number {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx) throw new Error(`[bh] session ${sessionId} does not exist`);
+    if (ctx.mode !== "current_tab" || ctx.attachedTabId === undefined) {
+      throw new Error(`[bh] session ${sessionId} is not a current-tab session`);
+    }
+    if (target.windowId !== ctx.agentWindowId) {
+      throw new Error(
+        `[bh] work tab ${target.tabId} must stay in current window ${ctx.agentWindowId}`,
+      );
+    }
+    this.assertCurrentTabAvailable(target, sessionId);
+    const previousTabId = ctx.attachedTabId;
+    if (previousTabId === target.tabId) return previousTabId;
+    this.attachedTabIndex.delete(previousTabId);
+    this.attachedTabIndex.set(target.tabId, sessionId);
+    ctx.attachedTabId = target.tabId;
+    ctx.refStore.clear();
+    return previousTabId;
+  }
+
   /**
    * Look up whether `tabId` is currently borrowed by some *other*
    * session than the one calling. Used by M8 `tab_borrow` to refuse
@@ -201,32 +243,54 @@ export class SessionManager {
     throwIfSessionStartAborted(opts.signal);
 
     if (opts.mode === "current_tab") {
-      const target = await this.currentTab.getLastFocusedActiveTab();
+      const originalTarget = await this.currentTab.getLastFocusedActiveTab();
       throwIfSessionStartAborted(opts.signal);
-      const attachedBy = this.attachedTabIndex.get(target.tabId);
-      if (attachedBy) {
-        throw new Error(`[bh] tab ${target.tabId} is already attached by session ${attachedBy}`);
+      this.assertCurrentTabAvailable(originalTarget, sessionId);
+      let target = originalTarget;
+      let fallbackCreated = false;
+      let createdTabId: number | null = null;
+      try {
+        if (cdpBlockedUrlReason(originalTarget.url)) {
+          if (!this.currentTab.createWorkTab) {
+            throw new Error("[bh] current-tab API cannot create a fallback work tab");
+          }
+          target = await this.currentTab.createWorkTab(
+            originalTarget.windowId,
+            CURRENT_TAB_WORK_HOME,
+          );
+          createdTabId = target.tabId;
+          fallbackCreated = true;
+          throwIfSessionStartAborted(opts.signal);
+          if (target.windowId !== originalTarget.windowId) {
+            throw new Error(
+              `[bh] fallback work tab ${target.tabId} was created outside window ${originalTarget.windowId}`,
+            );
+          }
+          this.assertCurrentTabAvailable(target, sessionId);
+        }
+        const ctx: SessionContext = {
+          sessionId,
+          mode: "current_tab",
+          agentWindowId: target.windowId,
+          attachedTabId: target.tabId,
+          fallbackCreated,
+          refStore: new RefStore(),
+          borrowedTabs: new Map(),
+          createdAtMs: this.now(),
+        };
+        this.sessions.set(sessionId, ctx);
+        this.attachedTabIndex.set(target.tabId, sessionId);
+        return ctx;
+      } catch (startupError) {
+        if (createdTabId !== null && this.currentTab.removeWorkTab) {
+          try {
+            await this.currentTab.removeWorkTab(createdTabId);
+          } catch (cleanupError) {
+            console.warn(`[bh] cleanup of fallback work tab ${createdTabId} failed`, cleanupError);
+          }
+        }
+        throw startupError;
       }
-      const borrowedBy = this.findBorrowingSession(target.tabId, sessionId);
-      if (borrowedBy) {
-        throw new Error(`[bh] tab ${target.tabId} is borrowed by session ${borrowedBy}`);
-      }
-      const agentOwner = this.windowIndex.get(target.windowId);
-      if (agentOwner) {
-        throw new Error(`[bh] current tab belongs to Agent Window owned by session ${agentOwner}`);
-      }
-      const ctx: SessionContext = {
-        sessionId,
-        mode: "current_tab",
-        agentWindowId: target.windowId,
-        attachedTabId: target.tabId,
-        refStore: new RefStore(),
-        borrowedTabs: new Map(),
-        createdAtMs: this.now(),
-      };
-      this.sessions.set(sessionId, ctx);
-      this.attachedTabIndex.set(target.tabId, sessionId);
-      return ctx;
     }
 
     let windowId: number | null = null;
@@ -241,6 +305,7 @@ export class SessionManager {
         sessionId,
         mode: "agent_window",
         agentWindowId: windowId,
+        fallbackCreated: false,
         refStore: new RefStore(),
         borrowedTabs: new Map(),
         createdAtMs: this.now(),

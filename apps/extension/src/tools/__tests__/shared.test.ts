@@ -115,6 +115,10 @@ describe("CDP target URL guard", () => {
     expect(cdpBlockedUrlReason("chrome-extension://abc/options.html")).toBe("chrome-extension:");
     expect(cdpBlockedUrlReason("chrome://extensions")).toBe("chrome:");
     expect(cdpBlockedUrlReason("about:newtab")).toBe("about:");
+    expect(cdpBlockedUrlReason("file:///Users/me/page.html")).toBe("file:");
+    expect(cdpBlockedUrlReason("https://chromewebstore.google.com/category/extensions")).toBe(
+      "chrome_web_store",
+    );
   });
 
   it("returns a structured permission error before page CDP access", () => {

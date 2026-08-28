@@ -49,6 +49,8 @@ pub struct Session {
     pub id: SessionId,
     pub browser_id: BrowserId,
     pub agent_window_id: Option<i64>,
+    pub attached_tab_id: Option<i64>,
+    pub fallback_created: bool,
     pub created_at_ms: i64,
 }
 
@@ -144,6 +146,8 @@ impl SessionRegistry {
                     id: candidate.clone(),
                     browser_id: browser_id.clone(),
                     agent_window_id: None,
+                    attached_tab_id: None,
+                    fallback_created: false,
                     created_at_ms: now_ms_fn(),
                 },
             );
@@ -164,10 +168,14 @@ impl SessionRegistry {
         &self,
         session_id: &SessionId,
         agent_window_id: Option<i64>,
+        attached_tab_id: Option<i64>,
+        fallback_created: bool,
     ) -> Option<Session> {
         let mut guard = self.inner.lock().expect("session registry poisoned");
         let session = guard.get_mut(session_id)?;
         session.agent_window_id = agent_window_id;
+        session.attached_tab_id = attached_tab_id;
+        session.fallback_created = fallback_created;
         Some(session.clone())
     }
 
@@ -389,7 +397,7 @@ pub enum StopSessionError {
 /// false `IdExhausted` failure at well below 10⁻¹⁵ even with thousands
 /// of live sessions.
 const SESSION_ID_MAX_RESERVE_ATTEMPTS: u32 = 64;
-const CURRENT_TAB_MIN_PROTOCOL: &str = "1.1";
+const CURRENT_TAB_MIN_PROTOCOL: &str = "1.2";
 
 fn protocol_at_least(actual: &str, minimum: &str) -> bool {
     fn major_minor(value: &str) -> Option<(u64, u64)> {
@@ -504,9 +512,9 @@ pub async fn start_session(
             return Err(StartSessionError::Timeout);
         }
     };
-    let agent_window_id = match response.body {
+    let start_result = match response.body {
         ResponseBody::Ok(v) => match serde_json::from_value::<SessionStartResult>(v) {
-            Ok(parsed) => parsed.agent_window_id,
+            Ok(parsed) => parsed,
             Err(_) => {
                 sessions.cancel_reservation(&session_id);
                 return Err(StartSessionError::ExtensionError(RpcError {
@@ -522,7 +530,12 @@ pub async fn start_session(
         }
     };
     let session = sessions
-        .commit_reservation(&session_id, agent_window_id)
+        .commit_reservation(
+            &session_id,
+            start_result.agent_window_id,
+            start_result.attached_tab_id,
+            start_result.fallback_created,
+        )
         .ok_or_else(|| {
             StartSessionError::ExtensionError(RpcError {
                 code: bsk_protocol::ErrorCode::ProtocolError,
@@ -653,10 +666,10 @@ mod current_tab_protocol_tests {
 
     #[test]
     fn compares_protocol_major_and_minor() {
-        assert!(protocol_at_least("1.1", "1.1"));
-        assert!(protocol_at_least("1.2", "1.1"));
-        assert!(protocol_at_least("2.0", "1.1"));
-        assert!(!protocol_at_least("1.0", "1.1"));
-        assert!(!protocol_at_least("invalid", "1.1"));
+        assert!(protocol_at_least("1.2", "1.2"));
+        assert!(protocol_at_least("1.3", "1.2"));
+        assert!(protocol_at_least("2.0", "1.2"));
+        assert!(!protocol_at_least("1.1", "1.2"));
+        assert!(!protocol_at_least("invalid", "1.2"));
     }
 }

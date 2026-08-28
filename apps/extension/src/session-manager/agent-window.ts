@@ -22,11 +22,14 @@ export interface AgentWindowApi {
 export interface CurrentTabTarget {
   windowId: number;
   tabId: number;
+  url?: string;
 }
 
 /** Browser lookup kept injectable so current-tab startup is unit-testable. */
 export interface CurrentTabApi {
   getLastFocusedActiveTab(): Promise<CurrentTabTarget>;
+  createWorkTab?(windowId: number, url: string): Promise<CurrentTabTarget>;
+  removeWorkTab?(tabId: number): Promise<void>;
 }
 
 /** Creation hints for a new Agent Window. */
@@ -39,6 +42,43 @@ export interface AgentWindowCreateOptions {
 
 /** Initial tab URL for every new session's Agent Window. */
 export const AGENT_WINDOW_HOME = "about:blank";
+/** CDP-accessible bootstrap page used when a current tab is restricted. */
+export const CURRENT_TAB_WORK_HOME = "about:blank";
+
+const CDP_BLOCKED_PROTOCOLS = new Set([
+  "chrome:",
+  "chrome-extension:",
+  "chrome-search:",
+  "chrome-untrusted:",
+  "devtools:",
+  "file:",
+  "view-source:",
+  "edge:",
+  "brave:",
+  "vivaldi:",
+  "opera:",
+]);
+
+/** Return the blocked URL scheme, or null when page CDP may attach. */
+export function cdpBlockedUrlReason(url: string | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (CDP_BLOCKED_PROTOCOLS.has(parsed.protocol)) return parsed.protocol;
+  if (parsed.protocol === "about:" && parsed.pathname !== "blank") return "about:";
+  if (
+    parsed.protocol === "https:" &&
+    (parsed.hostname === "chromewebstore.google.com" ||
+      (parsed.hostname === "chrome.google.com" && parsed.pathname.startsWith("/webstore")))
+  ) {
+    return "chrome_web_store";
+  }
+  return null;
+}
 
 export const chromeAgentWindowApi: AgentWindowApi = {
   async create(url: string, opts: AgentWindowCreateOptions = {}): Promise<number> {
@@ -86,6 +126,20 @@ export const chromeCurrentTabApi: CurrentTabApi = {
     if (!tab || typeof tab.id !== "number") {
       throw new Error(`[bh] no active tab in last-focused window ${win.id}`);
     }
-    return { windowId: win.id, tabId: tab.id };
+    return { windowId: win.id, tabId: tab.id, url: tab.url ?? tab.pendingUrl };
+  },
+  async createWorkTab(windowId: number, url: string): Promise<CurrentTabTarget> {
+    const tab = await chrome.tabs.create({ windowId, url, active: true });
+    if (typeof tab.id !== "number") {
+      throw new Error("[bh] chrome.tabs.create returned no tab id");
+    }
+    return {
+      windowId: typeof tab.windowId === "number" ? tab.windowId : windowId,
+      tabId: tab.id,
+      url: tab.url ?? tab.pendingUrl ?? url,
+    };
+  },
+  async removeWorkTab(tabId: number): Promise<void> {
+    await chrome.tabs.remove(tabId);
   },
 };

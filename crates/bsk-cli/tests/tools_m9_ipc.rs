@@ -145,6 +145,7 @@ where
                     ResponseBody::Ok(
                         serde_json::to_value(SessionStartResult {
                             agent_window_id: Some(id),
+                            ..SessionStartResult::default()
                         })
                         .unwrap(),
                     )

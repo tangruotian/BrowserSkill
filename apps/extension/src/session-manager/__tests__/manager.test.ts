@@ -164,6 +164,37 @@ describe("SessionManager", () => {
     expect(sm.findByTabId(77)).toBe(ctx);
   });
 
+  it("creates and binds a work tab when the current tab has a restricted URL", async () => {
+    const aw = fakeAgentWindow();
+    const currentTab = {
+      getLastFocusedActiveTab: vi.fn(async () => ({
+        windowId: 55,
+        tabId: 77,
+        url: "chrome://extensions/",
+      })),
+      createWorkTab: vi.fn(async () => ({
+        windowId: 55,
+        tabId: 88,
+        url: "about:blank",
+      })),
+      removeWorkTab: vi.fn(async () => {}),
+    };
+    const sm = new SessionManager({ agentWindow: aw, currentTab });
+
+    const ctx = await sm.start("aa11", { mode: "current_tab" });
+
+    expect(currentTab.createWorkTab).toHaveBeenCalledWith(55, "about:blank");
+    expect(currentTab.removeWorkTab).not.toHaveBeenCalled();
+    expect(ctx).toMatchObject({
+      mode: "current_tab",
+      agentWindowId: 55,
+      attachedTabId: 88,
+      fallbackCreated: true,
+    });
+    expect(sm.findByTabId(77)).toBeNull();
+    expect(sm.findByTabId(88)).toBe(ctx);
+  });
+
   it("stopping an attached session preserves the user's tab and window", async () => {
     const aw = fakeAgentWindow();
     const sm = new SessionManager({

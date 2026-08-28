@@ -29,8 +29,10 @@ https://github.com/user-attachments/assets/db782c92-b1d4-4aae-a255-039675937a90
 - **Keep working uninterrupted**: browser tasks run in a separate, visible
   Agent Window, so you can keep using your own browser.
 - **Explicitly control the current tab**: `bsk session start --attach-current-tab`
-  skips Agent Window creation and fixes the session to the tab active at start;
-  stopping the session preserves the user's tab and window.
+  fixes the session to the tab active at start. Restricted internal pages create
+  an `about:blank` work tab in the same window and report
+  `fallback_created=true`. `bsk tab create` can create and rebind another work
+  tab; the original tab and window are preserved.
 - **Support any Agent**: any Agent that can call a shell can use BrowserSkill
   through the `bsk` CLI, with no lock-in to a specific model, Agent framework, or
   harness.
@@ -169,7 +171,7 @@ flowchart TB
 
 The agent never talks to the browser directly. It asks the `bsk` CLI to perform a
 browser task; the local daemon routes that request to the extension; the
-extension runs it in an Agent Window.
+extension runs it in an Agent Window or an explicitly attached current tab.
 
 ## For Developers
 

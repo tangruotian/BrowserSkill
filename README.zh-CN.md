@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/db782c92-b1d4-4aae-a255-039675937a90
 
 - **复用真实登录态**：Agent 可以操作你已经登录的网站，不需要额外测试账号。
 - **不中断你的工作**：浏览器任务在独立可见的 Agent Window 中运行，不影响你继续使用自己的浏览器。
-- **可显式接管当前标签页**：使用 `bsk session start --attach-current-tab` 时不创建 Agent Window，而是固定接管启动瞬间的活动标签页；停止 session 不会关闭用户标签页或窗口。
+- **可显式接管当前标签页**：使用 `bsk session start --attach-current-tab` 时固定接管启动瞬间的活动标签页；若它是 `chrome://`、扩展页等受限页面，会在同一窗口创建 `about:blank` 工作标签页并返回 `fallback_created=true`。`bsk tab create` 可继续创建工作标签页并将会话重绑定到新 tab；原标签页与窗口都会保留。
 - **支持任意 Agent**：只要 Agent 能调用 Shell，就可以通过 `bsk` CLI 使用 BrowserSkill，不绑定特定模型、Agent 框架或 harness。
 - **内置 human-in-loop**：遇到 captcha、登录、确认弹窗等必须由人处理的步骤时，Agent 可以主动请求你接管，完成后再继续任务。
 
@@ -144,7 +144,7 @@ flowchart TB
   style UserWindows fill:#f8fafc,stroke:#cbd5e1,color:#334155
 ```
 
-Agent 不直接与浏览器通信。它通过 `bsk` CLI 下发浏览器任务；本地 daemon 把请求路由到扩展；扩展在 Agent Window 中执行。
+Agent 不直接与浏览器通信。它通过 `bsk` CLI 下发浏览器任务；本地 daemon 把请求路由到扩展；扩展在 Agent Window 或显式绑定的当前标签页中执行。
 
 ## 面向开发者
 

@@ -267,6 +267,74 @@ describe("handleTabCreate", () => {
     expect(res.url).toBe("https://example.com/");
   });
 
+  it("allows current_tab to create a work tab and rebinds the fixed target", async () => {
+    const sm = new SessionManager({
+      agentWindow: fakeAgentWindow([100]),
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({
+          windowId: 200,
+          tabId: 7,
+          url: "https://old.example/",
+        }),
+      },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+    const state: FakeTabState = {
+      tabs: new Map([
+        [7, { id: 7, windowId: 200, url: "https://old.example/" } as chrome.tabs.Tab],
+      ]),
+      nextTabId: 10,
+      windowsClosed: new Set(),
+    };
+    const { api, spies } = makeTabMutationApi(state);
+    const agentOverlayReset = { resetAgentOverlays: vi.fn(async () => {}) };
+    const cdp = { releaseSessionTab: vi.fn(async () => {}) };
+
+    const res = await handleTabCreate(
+      sm,
+      { session_id: "aa11", url: "https://work.example/" },
+      { tabs: api, agentOverlayReset, cdp },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(spies.create).toHaveBeenCalledWith({
+      windowId: 200,
+      url: "https://work.example/",
+      active: true,
+    });
+    expect(state.tabs.has(7)).toBe(true);
+    expect(sm.findByTabId(7)).toBeNull();
+    expect(sm.findByTabId(10)).toBe(sm.get("aa11"));
+    expect(sm.get("aa11")?.attachedTabId).toBe(10);
+    expect(agentOverlayReset.resetAgentOverlays).toHaveBeenCalledWith(7, "aa11");
+    expect(cdp.releaseSessionTab).toHaveBeenCalledWith("aa11", 7);
+  });
+
+  it("uses about:blank as the default work page for current_tab", async () => {
+    const sm = new SessionManager({
+      agentWindow: fakeAgentWindow([100]),
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({ windowId: 200, tabId: 7 }),
+      },
+    });
+    await sm.start("aa11", { mode: "current_tab" });
+    const state: FakeTabState = {
+      tabs: new Map([[7, { id: 7, windowId: 200 } as chrome.tabs.Tab]]),
+      nextTabId: 10,
+      windowsClosed: new Set(),
+    };
+    const { api, spies } = makeTabMutationApi(state);
+
+    const res = await handleTabCreate(sm, { session_id: "aa11" }, { tabs: api });
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(spies.create).toHaveBeenCalledWith({
+      windowId: 200,
+      url: "about:blank",
+      active: true,
+    });
+  });
+
   it("rejects negative index", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     await sm.start("aa11");

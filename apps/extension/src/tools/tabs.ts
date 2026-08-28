@@ -7,6 +7,7 @@ import {
   OVERLAY_AGENT_OVERLAY_RESET,
   type OverlayAgentOverlayResetMessage,
 } from "@/lib/overlay-bridge";
+import { CURRENT_TAB_WORK_HOME } from "@/session-manager/agent-window";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import type { RpcError } from "@/transport/types";
 import { rpcError } from "./errors";
@@ -310,6 +311,9 @@ export async function handleTabList(
 export interface TabManagementDeps {
   tabs?: TabMutationApi;
   windows?: ChromeWindowsApi;
+  cdp?: {
+    releaseSessionTab?(sessionId: string, tabId: number): Promise<void>;
+  };
   /** Abort hook (M10 will wire the full chain). */
   signal?: AbortSignal;
   /** Borrow approver — defaults to auto-approve (M8 stub). */
@@ -385,7 +389,7 @@ function buildCreateProps(
 ): chrome.tabs.CreateProperties {
   const createProps: chrome.tabs.CreateProperties = {
     windowId: ctx.agentWindowId,
-    url: params.url ?? NEW_TAB_DEFAULT_URL,
+    url: params.url ?? (ctx.mode === "current_tab" ? CURRENT_TAB_WORK_HOME : NEW_TAB_DEFAULT_URL),
     active: params.active ?? true,
   };
   if (params.index !== undefined) createProps.index = params.index;
@@ -437,9 +441,9 @@ async function createTabAndCleanup(
 // ---------------------------------------------------------------------------
 
 /**
- * Open a fresh tab *inside* the requesting session's Agent Window.
- * The Agent Window scope is enforced by always passing
- * `windowId: ctx.agentWindowId` to `chrome.tabs.create` (design §6).
+ * Open a fresh work tab in the session's controlled window. Agent Window
+ * sessions keep their normal multi-tab scope. A current-tab session atomically
+ * rebinds its one fixed target to the new tab and leaves the previous tab alone.
  */
 export async function handleTabCreate(
   manager: SessionManager,
@@ -449,13 +453,6 @@ export async function handleTabCreate(
   const ctxOrErr = lookupSession(manager, params, "tab_create");
   if (isRpcError(ctxOrErr)) return ctxOrErr;
   const ctx = ctxOrErr;
-  if (ctx.mode === "current_tab") {
-    return rpcError(
-      "permission_denied",
-      "current_tab_scope",
-      "tab_create is unavailable because a current-tab session is fixed to one existing tab",
-    );
-  }
   const ab = aborted(deps.signal, "tab_create");
   if (ab) return ab;
 
@@ -464,6 +461,41 @@ export async function handleTabCreate(
 
   const tab = await createTabAndCleanup(deps, buildCreateProps(ctx, params));
   if (isRpcError(tab)) return tab;
+
+  if (ctx.mode === "current_tab") {
+    const windowId = typeof tab.windowId === "number" ? tab.windowId : ctx.agentWindowId;
+    let previousTabId: number;
+    try {
+      previousTabId = manager.rebindCurrentTab(ctx.sessionId, {
+        windowId,
+        tabId: tab.id,
+        url: tab.url ?? tab.pendingUrl,
+      });
+    } catch (err) {
+      try {
+        await getTabsApi(deps).remove(tab.id);
+      } catch (cleanupErr) {
+        return rpcError(
+          "protocol_error",
+          "cleanup_failed",
+          `tab_create could not rebind the current-tab session and cleanup of tab ${tab.id} failed: ${describeError(cleanupErr)}`,
+          { resource_type: "tab", resource_id: tab.id },
+        );
+      }
+      return {
+        code: "protocol_error",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    if (previousTabId !== tab.id) {
+      try {
+        await getAgentOverlayResetApi(deps).resetAgentOverlays(previousTabId, ctx.sessionId);
+      } catch (err) {
+        console.debug("[bsk tab_create] previous-tab overlay reset failed", err);
+      }
+      await deps.cdp?.releaseSessionTab?.(ctx.sessionId, previousTabId);
+    }
+  }
 
   return {
     tab_id: tab.id,

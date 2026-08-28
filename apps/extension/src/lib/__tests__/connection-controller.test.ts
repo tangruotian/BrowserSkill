@@ -36,7 +36,7 @@ describe("computeConnectedState (protocol-based compat)", () => {
   });
 
   it("returns version_skew when daemon protocol minor is newer", () => {
-    expect(computeConnectedState(handshake("1.2", "1.0"))).toEqual({
+    expect(computeConnectedState(handshake("1.3", "1.0"))).toEqual({
       kind: "version_skew",
     });
   });

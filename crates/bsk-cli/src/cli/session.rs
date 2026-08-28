@@ -69,8 +69,8 @@ pub struct SessionStartArgs {
     #[arg(long)]
     pub no_focus: bool,
 
-    /// Attach to the active tab in the last-focused browser window instead
-    /// of creating an isolated Agent Window.
+    /// Attach to the active tab in the last-focused browser window. Restricted
+    /// internal pages automatically fall back to a new work tab in that window.
     #[arg(long, conflicts_with_all = ["width", "height", "no_focus"])]
     pub attach_current_tab: bool,
 }
@@ -120,6 +120,10 @@ pub struct StartReply {
     pub browser_instance_id: String,
     #[serde(default)]
     pub agent_window_id: Option<i64>,
+    #[serde(default)]
+    pub attached_tab_id: Option<i64>,
+    #[serde(default)]
+    pub fallback_created: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -210,6 +214,8 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
                         "session_id": reply.session_id,
                         "browser_instance_id": reply.browser_instance_id,
                         "agent_window_id": reply.agent_window_id,
+                        "attached_tab_id": reply.attached_tab_id,
+                        "fallback_created": reply.fallback_created,
                     }))
                     .map_err(|e| CliError::Local(anyhow::anyhow!(e)))?
                 );
@@ -235,7 +241,7 @@ pub struct SessionStartOptions {
     pub mode: SessionMode,
 }
 
-/// Start a session and open the Agent Window. Used by `session start` and `record start`.
+/// Start a session and select its browser target. Used by `session start` and `record start`.
 pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartReply, CliError> {
     call(
         sock,

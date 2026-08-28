@@ -44,6 +44,8 @@ fn fake_session(session_id: &str, browser_id: &str) -> Session {
         id: SessionId(session_id.into()),
         browser_id: BrowserId(browser_id.into()),
         agent_window_id: None,
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 0,
     }
 }

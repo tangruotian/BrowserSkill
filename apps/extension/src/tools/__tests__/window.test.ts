@@ -106,7 +106,7 @@ describe("handleSessionStart window size", () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
     const result = await handleSessionStart(sm, { session_id: "aa11", width: 1280, height: 800 });
-    expect(result).toEqual({ agent_window_id: 100 });
+    expect(result).toEqual({ agent_window_id: 100, fallback_created: false });
     expect(aw.create).toHaveBeenCalledWith("about:blank", { size: { width: 1280, height: 800 } });
   });
 
@@ -114,7 +114,7 @@ describe("handleSessionStart window size", () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
     const result = await handleSessionStart(sm, { session_id: "aa11" });
-    expect(result).toEqual({ agent_window_id: 100 });
+    expect(result).toEqual({ agent_window_id: 100, fallback_created: false });
     expect(aw.create).toHaveBeenCalledWith("about:blank", {});
   });
 
@@ -122,8 +122,28 @@ describe("handleSessionStart window size", () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
     const result = await handleSessionStart(sm, { session_id: "aa11", focused: false });
-    expect(result).toEqual({ agent_window_id: 100 });
+    expect(result).toEqual({ agent_window_id: 100, fallback_created: false });
     expect(aw.create).toHaveBeenCalledWith("about:blank", { focused: false });
+  });
+
+  it("reports the attached tab and restricted-page fallback status", async () => {
+    const currentTab = {
+      getLastFocusedActiveTab: vi.fn(async () => ({
+        windowId: 55,
+        tabId: 77,
+        url: "edge://settings/",
+      })),
+      createWorkTab: vi.fn(async () => ({ windowId: 55, tabId: 88, url: "about:blank" })),
+      removeWorkTab: vi.fn(async () => {}),
+    };
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]), currentTab });
+
+    const result = await handleSessionStart(sm, {
+      session_id: "aa11",
+      mode: "current_tab",
+    });
+
+    expect(result).toEqual({ attached_tab_id: 88, fallback_created: true });
   });
 
   it("rejects a lone width without height", async () => {

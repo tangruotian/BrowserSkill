@@ -11,7 +11,7 @@ use std::time::Duration;
 use bsk::daemon::{self, DaemonConfig};
 use bsk::ipc_client::IpcClient;
 use bsk_protocol::system::{HandshakeParams, HandshakeResult, StatusResult};
-use bsk_protocol::tools::{SessionStartParams, SessionStartResult, SessionStopParams};
+use bsk_protocol::tools::{SessionMode, SessionStartParams, SessionStartResult, SessionStopParams};
 use bsk_protocol::{BrowserPeerInfo, Frame, Method, RequestFrame, ResponseBody, ResponseFrame};
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
@@ -84,7 +84,7 @@ async fn handshake_as_ext(
     let params = HandshakeParams {
         client: "browser-skill-extension".into(),
         version: "0.1.0-dev.0".parse().unwrap(),
-        protocol_version: "1.0".into(),
+        protocol_version: "1.2".into(),
         instance_id: TEST_EXT_ID.into(),
         browser: BrowserPeerInfo {
             name: "chrome".into(),
@@ -115,7 +115,7 @@ async fn handshake_as_ext(
 }
 
 #[tokio::test]
-async fn session_start_stop_round_trip_via_ipc() {
+async fn current_tab_start_stop_round_trip_reports_fallback_via_ipc() {
     let (handle, sock) = spawn_daemon().await;
     let mut ws = connect_ext(handle.ws_addr()).await;
     let _ = handshake_as_ext(&mut ws).await;
@@ -146,9 +146,12 @@ async fn session_start_stop_round_trip_via_ipc() {
                     Method::ToolSessionStart => {
                         let params: SessionStartParams =
                             serde_json::from_value(req.params.clone().unwrap()).unwrap();
-                        assert_eq!(params.focused, Some(false));
+                        assert_eq!(params.focused, None);
+                        assert_eq!(params.mode, SessionMode::CurrentTab);
                         let result = SessionStartResult {
-                            agent_window_id: Some(4242),
+                            agent_window_id: None,
+                            attached_tab_id: Some(88),
+                            fallback_created: true,
                         };
                         ResponseFrame {
                             id: req.id,
@@ -178,13 +181,15 @@ async fn session_start_stop_round_trip_via_ipc() {
     #[derive(serde::Serialize)]
     struct StartParams {
         browser_instance_id: Option<String>,
-        focused: Option<bool>,
+        mode: SessionMode,
     }
     #[derive(serde::Deserialize, Debug)]
     struct StartReply {
         session_id: String,
         browser_instance_id: String,
         agent_window_id: Option<i64>,
+        attached_tab_id: Option<i64>,
+        fallback_created: bool,
     }
 
     let start: StartReply = ipc
@@ -193,7 +198,7 @@ async fn session_start_stop_round_trip_via_ipc() {
             Method::SessionStart,
             Some(StartParams {
                 browser_instance_id: None,
-                focused: Some(false),
+                mode: SessionMode::CurrentTab,
             }),
             Duration::from_secs(5),
         )
@@ -203,7 +208,9 @@ async fn session_start_stop_round_trip_via_ipc() {
     assert_eq!(start.session_id.len(), 4);
     assert!(start.session_id.chars().all(|c| c.is_ascii_lowercase()));
     assert_eq!(start.browser_instance_id, TEST_EXT_ID);
-    assert_eq!(start.agent_window_id, Some(4242));
+    assert_eq!(start.agent_window_id, None);
+    assert_eq!(start.attached_tab_id, Some(88));
+    assert!(start.fallback_created);
 
     // status should reflect 1 session
     let status: StatusResult = ipc
@@ -261,6 +268,8 @@ async fn session_idle_timeout_stops_and_unregisters_session() {
         id: session_id.clone(),
         browser_id: bsk::daemon::browsers::BrowserId(TEST_EXT_ID.into()),
         agent_window_id: Some(7),
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 0,
     });
     state.tool_queues.spawn(session_id);
@@ -348,6 +357,7 @@ async fn session_start_waits_for_late_extension_handshake() {
             }
             let result = SessionStartResult {
                 agent_window_id: Some(4242),
+                ..SessionStartResult::default()
             };
             let resp = Frame::Response(ResponseFrame {
                 id: req.id,
@@ -487,6 +497,7 @@ async fn session_start_with_browser_instance_id_picks_target() {
             {
                 let result = SessionStartResult {
                     agent_window_id: Some(123),
+                    ..SessionStartResult::default()
                 };
                 let reply = ResponseFrame {
                     id: req.id,
@@ -591,6 +602,7 @@ async fn session_start_label_match_picks_target() {
             {
                 let result = SessionStartResult {
                     agent_window_id: Some(456),
+                    ..SessionStartResult::default()
                 };
                 let reply = ResponseFrame {
                     id: req.id,
@@ -680,6 +692,8 @@ async fn session_window_closed_event_purges_session() {
         id: bsk::daemon::sessions::SessionId("zzzz".into()),
         browser_id: bsk::daemon::browsers::BrowserId(TEST_EXT_ID.into()),
         agent_window_id: Some(7),
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 0,
     };
     state.sessions.insert(session);
@@ -717,6 +731,8 @@ async fn browser_disconnect_purges_sessions() {
         id: bsk::daemon::sessions::SessionId("zzzz".into()),
         browser_id: bsk::daemon::browsers::BrowserId(TEST_EXT_ID.into()),
         agent_window_id: Some(7),
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 0,
     };
     state.sessions.insert(session);
@@ -746,6 +762,8 @@ async fn session_stop_self_heals_when_extension_reports_not_found() {
         id: bsk::daemon::sessions::SessionId("yyyy".into()),
         browser_id: bsk::daemon::browsers::BrowserId(TEST_EXT_ID.into()),
         agent_window_id: Some(99),
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 1,
     };
     state.sessions.insert(session);
@@ -845,6 +863,8 @@ async fn reconnect_with_same_instance_id_purges_stale_sessions_but_keeps_new_bro
         id: bsk::daemon::sessions::SessionId("xxxx".into()),
         browser_id: bsk::daemon::browsers::BrowserId(TEST_EXT_ID.into()),
         agent_window_id: Some(11),
+        attached_tab_id: None,
+        fallback_created: false,
         created_at_ms: 1,
     };
     state.sessions.insert(session);

@@ -65,7 +65,7 @@ describe("ToolDispatcher", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({
       id: "r-1",
-      result: { agent_window_id: 4242 },
+      result: { agent_window_id: 4242, fallback_created: false },
     });
   });
 
@@ -111,7 +111,7 @@ describe("ToolDispatcher", () => {
     expect(create).not.toHaveBeenCalled();
     expect(currentTab.getLastFocusedActiveTab).toHaveBeenCalledOnce();
     expect(sessions.get("aa11")).toMatchObject({ mode: "current_tab", attachedTabId: 60 });
-    expect(sent).toEqual([{ id: "r-1", result: {} }]);
+    expect(sent).toEqual([{ id: "r-1", result: { attached_tab_id: 60, fallback_created: false } }]);
   });
 
   it("routes tool.session_stop and replies with empty result", async () => {

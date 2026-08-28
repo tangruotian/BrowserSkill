@@ -59,6 +59,8 @@ export interface SessionStartParams {
 
 export interface SessionStartResult {
   agent_window_id?: number;
+  attached_tab_id?: number;
+  fallback_created: boolean;
 }
 
 export interface SessionStartDeps {
@@ -131,7 +133,12 @@ export async function handleSessionStart(
       focused: params.focused,
       signal: deps.signal,
     });
-    return ctx.mode === "agent_window" ? { agent_window_id: ctx.agentWindowId } : {};
+    return ctx.mode === "agent_window"
+      ? { agent_window_id: ctx.agentWindowId, fallback_created: false }
+      : {
+          attached_tab_id: ctx.attachedTabId,
+          fallback_created: ctx.fallbackCreated,
+        };
   } catch (err) {
     if (err instanceof SessionStartCleanupError) {
       return rpcError("protocol_error", "cleanup_failed", err.message, {
