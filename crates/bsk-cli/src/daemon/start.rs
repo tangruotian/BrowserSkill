@@ -228,12 +228,6 @@ pub fn run_foreground(cfg: DaemonConfig) -> Result<()> {
         let state = Arc::new(DaemonState::new(cfg.clone()));
         let session_idle_task = spawn_session_idle_reaper(Arc::clone(&state));
         let browser_liveness_task = spawn_browser_liveness_reaper(Arc::clone(&state));
-        // Fired by the update check task after a successful auto-update:
-        // the replacement daemon has already been spawned, so this
-        // process should shut down and let it take over.
-        let restart_notify = Arc::new(tokio::sync::Notify::new());
-        let update_check_task =
-            spawn_update_check_task(Arc::clone(&state), Arc::clone(&restart_notify));
         let ws_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), cfg.ws_port);
         let ws_handle = ws::WsServer::new(Arc::clone(&state))
             .bind(ws_addr)
@@ -380,11 +374,6 @@ pub fn run_foreground(cfg: DaemonConfig) -> Result<()> {
         };
         drop(idle_rx);
 
-        // Created before `select!` so a `notify_one` from the update
-        // check task is never missed (Notify stores one permit).
-        let restart_notified = restart_notify.notified();
-        tokio::pin!(restart_notified);
-
         tokio::select! {
             _ = wait_for_shutdown() => {
                 info!("bsk daemon shutting down (signal)");
@@ -394,9 +383,6 @@ pub fn run_foreground(cfg: DaemonConfig) -> Result<()> {
                     info!("bsk daemon shutting down (idle)");
                 }
             }
-            _ = &mut restart_notified => {
-                info!("bsk daemon shutting down (auto-update restart)");
-            }
         }
 
         let _ = ipc_shutdown_tx.send(());
@@ -405,8 +391,6 @@ pub fn run_foreground(cfg: DaemonConfig) -> Result<()> {
         let _ = session_idle_task.await;
         browser_liveness_task.abort();
         let _ = browser_liveness_task.await;
-        update_check_task.abort();
-        let _ = update_check_task.await;
         ws_handle.shutdown.notify_waiters();
         let _ = ws_handle.task.await;
 
@@ -513,172 +497,6 @@ pub(crate) fn spawn_session_idle_reaper(state: Arc<DaemonState>) -> tokio::task:
             }
         }
     })
-}
-
-/// Spawn the periodic update check owned by the production daemon.
-///
-/// The daemon is the only writer of `~/.bsk/update-check.json`; CLI
-/// commands only read it to print the "new version available" hint
-/// (see [`crate::cli::update::print_update_hint_from_cache`]). The first
-/// tick of `tokio::time::interval` is immediate, so the check runs right
-/// after startup and then every
-/// [`crate::cli::update::UPDATE_CHECK_INTERVAL`]. Each tick re-reads the
-/// cache and skips the network fetch while it is still fresh within
-/// [`crate::cli::update::DAEMON_REFRESH_WINDOW`] (25min — shorter than
-/// the 30min tick, so steady state really refreshes on every tick
-/// instead of every other one). The task
-/// loops forever; shutdown aborts it like the other background tasks, so
-/// it never delays daemon exit (an in-flight fetch is bounded by the
-/// update client's own timeout and detached on abort).
-///
-/// When a tick finds a newer version the daemon also *installs* it
-/// (auto-update, on by default; [`crate::cli::update::AUTO_UPDATE_ENV`]
-/// `=off` disables it and keeps the check cache/hint-only). Safety
-/// gate: while any agent session is live the tick postpones the
-/// install and retries next time. Once the new binary is in place the
-/// task spawns the replacement daemon (see
-/// [`DAEMON_REPLACEMENT_WAIT_ENV`]) and fires `restart` so this process
-/// shuts down and the new version takes over; on Windows the
-/// replacement can only be staged, so it just logs that a restart is
-/// needed.
-pub(crate) fn spawn_update_check_task(
-    state: Arc<DaemonState>,
-    restart: Arc<tokio::sync::Notify>,
-) -> tokio::task::JoinHandle<()> {
-    use crate::cli::update;
-
-    tokio::spawn(async move {
-        let cache_path = match paths::update_check_path() {
-            Ok(path) => path,
-            Err(err) => {
-                warn!(error = %err, "periodic update check disabled: cannot resolve cache path");
-                return;
-            }
-        };
-        // Capture our own executable path once, up front: after an
-        // auto-update replaces the binary, `current_exe` on Linux starts
-        // returning a " (deleted)"-suffixed path that can neither be
-        // replaced again nor spawned.
-        let exe_path = match std::env::current_exe() {
-            Ok(exe) => Some(exe),
-            Err(err) => {
-                warn!(error = %err, "auto-update install disabled: cannot locate current executable");
-                None
-            }
-        };
-
-        let mut ticker = tokio::time::interval(update::UPDATE_CHECK_INTERVAL);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            ticker.tick().await;
-
-            let needs_refresh = match update::read_update_cache(&cache_path) {
-                Ok(cache) => update::cache_needs_refresh(
-                    cache.as_ref(),
-                    update::now_epoch_secs(),
-                    update::DAEMON_REFRESH_WINDOW,
-                ),
-                Err(err) => {
-                    warn!(error = %err, "update cache unreadable; will refresh it");
-                    true
-                }
-            };
-            if !needs_refresh {
-                debug!("update cache still fresh; skipping update check");
-                continue;
-            }
-
-            let result = {
-                let cache_path = cache_path.clone();
-                let state = Arc::clone(&state);
-                let exe_path = exe_path.clone();
-                tokio::task::spawn_blocking(move || {
-                    let candidate = update::refresh_update_cache(&cache_path)?;
-                    // The session gate is read after the fetch, as late
-                    // as possible before the binary gets replaced.
-                    let active_sessions = state.sessions.len();
-                    let auto_update = update::auto_update_enabled() && exe_path.is_some();
-                    update::auto_update_step(
-                        candidate.as_ref(),
-                        auto_update,
-                        active_sessions,
-                        |candidate| {
-                            let target =
-                                exe_path.as_deref().context("current executable unknown")?;
-                            update::self_install_candidate(candidate, target)
-                        },
-                    )
-                })
-                .await
-            };
-            let outcome = match result {
-                Ok(Ok(outcome)) => outcome,
-                Ok(Err(err)) => {
-                    warn!(error = %err, "periodic update check failed");
-                    continue;
-                }
-                Err(err) => {
-                    warn!(error = %err, "periodic update check task panicked");
-                    continue;
-                }
-            };
-            match outcome {
-                update::AutoUpdateOutcome::UpToDate => {
-                    info!("periodic update check refreshed cache (already up to date)")
-                }
-                update::AutoUpdateOutcome::Disabled { latest } => info!(
-                    %latest,
-                    "periodic update check found a new version; auto-update off, CLI hint only"
-                ),
-                update::AutoUpdateOutcome::PostponedSessions { latest, sessions } => info!(
-                    %latest,
-                    sessions,
-                    "auto-update postponed: agent session(s) active; will retry on the next tick"
-                ),
-                update::AutoUpdateOutcome::Staged { latest } => warn!(
-                    %latest,
-                    "auto-update staged the new binary but cannot replace the running daemon in place; restart the daemon (or terminal) to finish the upgrade"
-                ),
-                update::AutoUpdateOutcome::Replaced { latest } => {
-                    info!(
-                        current = env!("CARGO_PKG_VERSION"),
-                        %latest,
-                        "auto-update installed the new bsk binary; restarting daemon"
-                    );
-                    // `exe_path` is always Some here: the install only
-                    // runs when it was captured.
-                    if let Some(exe) = &exe_path {
-                        let args = restart_start_args(&state.config);
-                        match spawn_detached_at(exe, &args, Some(std::process::id())) {
-                            Ok(()) => {
-                                info!(
-                                    pid = std::process::id(),
-                                    "replacement daemon spawned; exiting so it can take over"
-                                );
-                                restart.notify_one();
-                                return;
-                            }
-                            Err(err) => warn!(
-                                error = %err,
-                                "auto-update replaced the binary but failed to spawn the replacement daemon; the next daemon start picks up the new version"
-                            ),
-                        }
-                    }
-                }
-            }
-        }
-    })
-}
-
-/// Rebuild the `StartArgs` for the replacement daemon from the running
-/// config so the respawn keeps the same port and idle timeouts.
-fn restart_start_args(cfg: &DaemonConfig) -> StartArgs {
-    StartArgs {
-        port: Some(cfg.ws_port),
-        foreground: false,
-        session_idle: Some(cfg.session_idle),
-        daemon_idle: Some(cfg.daemon_idle),
-    }
 }
 
 fn record_activity(activity: &Arc<Mutex<Instant>>) {
@@ -1051,20 +869,5 @@ mod tests {
     fn format_duration_round_trips_seconds_and_millis() {
         assert_eq!(format_duration(Duration::from_secs(5)), "5s");
         assert_eq!(format_duration(Duration::from_millis(750)), "750ms");
-    }
-
-    #[test]
-    fn restart_start_args_preserve_the_running_config() {
-        let cfg = DaemonConfig {
-            ws_port: 1234,
-            session_idle: Duration::from_secs(11),
-            daemon_idle: Duration::from_secs(22),
-            ..DaemonConfig::new(0)
-        };
-        let args = restart_start_args(&cfg);
-        assert_eq!(args.port, Some(1234));
-        assert!(!args.foreground);
-        assert_eq!(args.session_idle, Some(Duration::from_secs(11)));
-        assert_eq!(args.daemon_idle, Some(Duration::from_secs(22)));
     }
 }

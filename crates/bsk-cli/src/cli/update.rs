@@ -29,22 +29,6 @@ const ARCHIVE_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// writer; CLI commands only ever read the cache.
 pub(crate) const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
-/// Freshness window the daemon uses to decide whether a tick actually
-/// refreshes the cache. Deliberately shorter than the tick cadence
-/// ([`UPDATE_CHECK_INTERVAL`]): with an equal window, a cache refreshed
-/// just after tick N would still count as fresh at tick N+1 (age just
-/// under 30min), so steady state would only refetch every *other* tick.
-/// At 5/6 of the interval (25min) every 30-minute tick finds the cache
-/// stale and really refreshes it, while a daemon restarted with a
-/// younger-than-25min cache still skips its first tick.
-pub(crate) const DAEMON_REFRESH_WINDOW: Duration =
-    Duration::from_secs(UPDATE_CHECK_INTERVAL.as_secs() * 5 / 6);
-
-/// Environment variable that switches daemon-side auto-upgrade off.
-/// Unset, or any value other than `off` (compared case-insensitively,
-/// surrounding whitespace ignored), keeps auto-upgrade on.
-pub(crate) const AUTO_UPDATE_ENV: &str = "BSK_AUTO_UPDATE";
-
 #[derive(Debug, Clone)]
 pub struct UpdateManifest {
     pub version: Version,
@@ -392,71 +376,6 @@ pub(crate) fn download_candidate_binary(
     extract_bsk_binary(&archive, kind)
 }
 
-/// Daemon-side install: download, verify, and replace the executable at
-/// `target` (on Windows: stage the replacement next to it). Unlike the
-/// CLI path this never stops or starts the daemon — the daemon drives
-/// its own restart once the binary is replaced.
-///
-/// `target` must be captured *before* any replacement happens: on Linux
-/// `std::env::current_exe` starts returning a ` (deleted)`-suffixed
-/// path once the running binary has been replaced on disk.
-pub(crate) fn self_install_candidate(
-    candidate: &UpdateCandidate,
-    target: &Path,
-) -> Result<InstallAction> {
-    let client = update_http_client(ARCHIVE_FETCH_TIMEOUT)?;
-    let binary = download_candidate_binary(candidate, &client)?;
-    replace_binary_at_path(target, &binary)
-}
-
-/// Outcome of one daemon auto-update step (see [`auto_update_step`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AutoUpdateOutcome {
-    /// The manifest names no newer version.
-    UpToDate,
-    /// A newer version exists but auto-update is switched off — the
-    /// refreshed cache still feeds the CLI hint.
-    Disabled { latest: String },
-    /// Live agent sessions block replacing the binary; the next tick
-    /// retries.
-    PostponedSessions { latest: String, sessions: usize },
-    /// The new binary replaced the old one; the daemon should now
-    /// restart into it.
-    Replaced { latest: String },
-    /// Windows staged the replacement next to the running binary; a
-    /// daemon/terminal restart finishes it.
-    Staged { latest: String },
-}
-
-/// The daemon's auto-update step for one tick: decide whether the
-/// fetched `candidate` may be installed (auto-update on, no live agent
-/// sessions) and, only then, run `install`. The installer is injectable
-/// so tests never touch a real binary.
-pub(crate) fn auto_update_step(
-    candidate: Option<&UpdateCandidate>,
-    auto_update_enabled: bool,
-    active_sessions: usize,
-    install: impl FnOnce(&UpdateCandidate) -> Result<InstallAction>,
-) -> Result<AutoUpdateOutcome> {
-    let Some(candidate) = candidate else {
-        return Ok(AutoUpdateOutcome::UpToDate);
-    };
-    let latest = candidate.latest.to_string();
-    if !auto_update_enabled {
-        return Ok(AutoUpdateOutcome::Disabled { latest });
-    }
-    if active_sessions > 0 {
-        return Ok(AutoUpdateOutcome::PostponedSessions {
-            latest,
-            sessions: active_sessions,
-        });
-    }
-    Ok(match install(candidate)? {
-        InstallAction::Replaced => AutoUpdateOutcome::Replaced { latest },
-        InstallAction::Staged => AutoUpdateOutcome::Staged { latest },
-    })
-}
-
 pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<()> {
     let actual = hex_sha256(bytes);
     let expected = expected_hex.trim().to_ascii_lowercase();
@@ -468,18 +387,6 @@ pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<()> {
 
 fn manifest_url() -> String {
     std::env::var("BSK_UPDATE_MANIFEST_URL").unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string())
-}
-
-/// Whether daemon-side auto-upgrade is enabled. On by default; only
-/// [`AUTO_UPDATE_ENV`]`=off` disables it. This is the single place the
-/// switch is interpreted — the daemon periodic task and the CLI hint
-/// both go through it so they always agree.
-pub(crate) fn auto_update_enabled() -> bool {
-    auto_update_enabled_from(std::env::var(AUTO_UPDATE_ENV).ok().as_deref())
-}
-
-fn auto_update_enabled_from(value: Option<&str>) -> bool {
-    !matches!(value, Some(value) if value.trim().eq_ignore_ascii_case("off"))
 }
 
 pub fn update_hint_for_manifest(
@@ -565,36 +472,6 @@ pub(crate) fn now_epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Decide whether the update cache needs a network refresh: a missing
-/// cache always does, a present one only once it is no longer fresh.
-pub(crate) fn cache_needs_refresh(
-    cache: Option<&UpdateCheckCache>,
-    now_epoch_secs: u64,
-    interval: Duration,
-) -> bool {
-    match cache {
-        Some(cache) => !cache.is_fresh(now_epoch_secs, interval),
-        None => true,
-    }
-}
-
-/// Fetch the update manifest and rewrite the cache. Returns the update
-/// candidate when the manifest names a newer version. Blocking: call
-/// from a blocking context (the daemon wraps it in `spawn_blocking`).
-pub(crate) fn refresh_update_cache(cache_path: &Path) -> Result<Option<UpdateCandidate>> {
-    let manifest = fetch_manifest(&manifest_url())?;
-    let platform = current_platform_key()?;
-    let candidate = manifest.update_candidate(env!("CARGO_PKG_VERSION"), platform)?;
-    write_update_cache(
-        cache_path,
-        &UpdateCheckCache {
-            checked_at_epoch_secs: now_epoch_secs(),
-            latest_version: manifest.version.to_string(),
-        },
-    )?;
-    Ok(candidate)
-}
-
 /// Print the cached "new version available" hint, if there is one.
 ///
 /// Read-only by design: the daemon's periodic task owns refreshing
@@ -621,7 +498,9 @@ pub fn print_update_hint_from_cache(flags: &super::GlobalFlags, command: &super:
         &cache_path,
         env!("CARGO_PKG_VERSION"),
         now_epoch_secs(),
-        auto_update_enabled(),
+        // Daemon-side auto-upgrade has been removed, so the hint always
+        // points at the manual `bsk update` command.
+        false,
     ) {
         Ok(Some(hint)) => eprintln!("{hint}"),
         Ok(None) => {}
@@ -1091,63 +970,6 @@ mod tests {
     }
 
     #[test]
-    fn cache_needs_refresh_only_when_missing_or_stale() {
-        let fresh = UpdateCheckCache {
-            checked_at_epoch_secs: 1000,
-            latest_version: "0.2.0".to_string(),
-        };
-        let stale = UpdateCheckCache {
-            checked_at_epoch_secs: 100,
-            latest_version: "0.2.0".to_string(),
-        };
-        let now = 1000 + UPDATE_CHECK_INTERVAL.as_secs();
-
-        assert!(cache_needs_refresh(None, now, UPDATE_CHECK_INTERVAL));
-        assert!(!cache_needs_refresh(
-            Some(&fresh),
-            now,
-            UPDATE_CHECK_INTERVAL
-        ));
-        assert!(cache_needs_refresh(
-            Some(&stale),
-            now,
-            UPDATE_CHECK_INTERVAL
-        ));
-    }
-
-    #[test]
-    fn daemon_refresh_window_is_shorter_than_tick() {
-        // 25 minutes: 5/6 of the 30-minute tick.
-        assert_eq!(DAEMON_REFRESH_WINDOW, Duration::from_secs(1500));
-        assert!(DAEMON_REFRESH_WINDOW < UPDATE_CHECK_INTERVAL);
-    }
-
-    #[test]
-    fn daemon_refresh_window_refreshes_every_tick_in_steady_state() {
-        // A cache written just after tick N must count as stale at tick
-        // N+1 (30 minutes later), so every tick really refetches.
-        let cache = UpdateCheckCache {
-            checked_at_epoch_secs: 10_000,
-            latest_version: "0.2.0".to_string(),
-        };
-        let next_tick = 10_000 + UPDATE_CHECK_INTERVAL.as_secs();
-        assert!(cache_needs_refresh(
-            Some(&cache),
-            next_tick,
-            DAEMON_REFRESH_WINDOW
-        ));
-
-        // ... while a daemon restarted with a cache younger than the
-        // refresh window still skips the fetch.
-        let just_checked = 10_000 + Duration::from_secs(10 * 60).as_secs();
-        assert!(!cache_needs_refresh(
-            Some(&cache),
-            just_checked,
-            DAEMON_REFRESH_WINDOW
-        ));
-    }
-
-    #[test]
     fn cached_update_hint_only_for_fresh_newer_cache() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("update-check.json");
@@ -1196,109 +1018,6 @@ mod tests {
         // Corrupt cache file -> error surfaced to the caller, no panic.
         std::fs::write(&path, b"not json").unwrap();
         assert!(cached_update_hint(&path, "0.1.7", now, true).is_err());
-    }
-
-    #[test]
-    fn auto_update_toggle_defaults_on_and_only_off_disables() {
-        assert!(auto_update_enabled_from(None));
-        assert!(auto_update_enabled_from(Some("on")));
-        assert!(auto_update_enabled_from(Some("1")));
-        assert!(auto_update_enabled_from(Some("")));
-        assert!(!auto_update_enabled_from(Some("off")));
-        assert!(!auto_update_enabled_from(Some("OFF")));
-        assert!(!auto_update_enabled_from(Some("  Off  ")));
-    }
-
-    fn test_candidate() -> UpdateCandidate {
-        UpdateCandidate {
-            current: Version::parse("0.1.7").unwrap(),
-            latest: Version::parse("0.2.0").unwrap(),
-            tag: "cli-v0.2.0".to_string(),
-            release_url: None,
-            asset: ManifestAsset {
-                url: "https://example.test/bsk.tar.gz".to_string(),
-                sha256: Some("abc123".to_string()),
-            },
-        }
-    }
-
-    #[test]
-    fn auto_update_step_reports_up_to_date_without_candidate() {
-        let outcome = auto_update_step(None, true, 0, |_| panic!("install must not run")).unwrap();
-        assert_eq!(outcome, AutoUpdateOutcome::UpToDate);
-    }
-
-    #[test]
-    fn auto_update_step_keeps_cache_only_when_disabled() {
-        let candidate = test_candidate();
-        let outcome = auto_update_step(Some(&candidate), false, 0, |_| {
-            panic!("install must not run")
-        })
-        .unwrap();
-        assert_eq!(
-            outcome,
-            AutoUpdateOutcome::Disabled {
-                latest: "0.2.0".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn auto_update_step_postpones_with_active_sessions() {
-        let candidate = test_candidate();
-        let outcome = auto_update_step(Some(&candidate), true, 2, |_| {
-            panic!("install must not run")
-        })
-        .unwrap();
-        assert_eq!(
-            outcome,
-            AutoUpdateOutcome::PostponedSessions {
-                latest: "0.2.0".to_string(),
-                sessions: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn auto_update_step_installs_when_no_sessions() {
-        let candidate = test_candidate();
-        let installs = std::cell::Cell::new(0);
-        let outcome = auto_update_step(Some(&candidate), true, 0, |candidate| {
-            installs.set(installs.get() + 1);
-            assert_eq!(candidate.latest.to_string(), "0.2.0");
-            Ok(InstallAction::Replaced)
-        })
-        .unwrap();
-        assert_eq!(installs.get(), 1);
-        assert_eq!(
-            outcome,
-            AutoUpdateOutcome::Replaced {
-                latest: "0.2.0".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn auto_update_step_staged_outcome_requests_no_restart() {
-        // The Windows shape: the replacement is staged next to the
-        // running binary, so the outcome must not ask for the immediate
-        // self-restart that `Replaced` triggers.
-        let candidate = test_candidate();
-        let outcome =
-            auto_update_step(Some(&candidate), true, 0, |_| Ok(InstallAction::Staged)).unwrap();
-        assert_eq!(
-            outcome,
-            AutoUpdateOutcome::Staged {
-                latest: "0.2.0".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn auto_update_step_propagates_install_errors() {
-        let candidate = test_candidate();
-        let result = auto_update_step(Some(&candidate), true, 0, |_| bail!("boom"));
-        assert!(result.is_err());
     }
 
     fn tar_gz_with_bsk(binary: &[u8]) -> Vec<u8> {
