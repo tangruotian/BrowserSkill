@@ -215,7 +215,7 @@ mod platform {
         const CONNECT_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
         pub async fn connect_path(pipe_name: PathBuf) -> Result<Self> {
-            let name = pipe_name.to_string_lossy().into_owned();
+            let name = crate::daemon::paths::pipe_name_for_endpoint(&pipe_name);
             let connect_loop = async {
                 loop {
                     match ClientOptions::new().open(&name) {

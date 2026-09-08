@@ -42,7 +42,7 @@ describe("computeConnectedState (protocol-based compat)", () => {
   });
 
   it("returns version_skew when daemon protocol string differs but floor is satisfied", () => {
-    expect(computeConnectedState(handshake("1", "1.0"))).toEqual({
+    expect(computeConnectedState(handshake("1.1.0", "1.0"))).toEqual({
       kind: "version_skew",
     });
   });
@@ -56,7 +56,7 @@ describe("computeConnectedState (protocol-based compat)", () => {
   });
 
   it("rejects when extension is below daemon min_compatible_protocol", () => {
-    const result = computeConnectedState(handshake("1.0", "1.5"));
+    const result = computeConnectedState(handshake("1.1", "1.5"));
     expect(result.kind).toBe("rejected");
     if (result.kind === "rejected") {
       expect(result.reason).toContain("min_compatible_protocol");
@@ -83,7 +83,7 @@ describe("computeConnectedState (protocol-based compat)", () => {
   });
 
   it("rejects malformed daemon min_compatible_protocol with a daemon-floor reason", () => {
-    const result = computeConnectedState(handshake("1.0", "not-a-protocol"));
+    const result = computeConnectedState(handshake("1.1", "not-a-protocol"));
     expect(result.kind).toBe("rejected");
     if (result.kind === "rejected") {
       expect(result.reason).toContain("daemon min_compatible_protocol");

@@ -108,12 +108,20 @@ async fn send_handshake_with_floors(
 async fn handshake_ok_when_protocol_matches() {
     let (handle, _sock) = spawn_daemon().await;
     let mut ws = open_ws(handle.ws_addr()).await;
-    let resp = send_handshake(&mut ws, "1.0", env!("CARGO_PKG_VERSION")).await;
+    let resp = send_handshake(
+        &mut ws,
+        bsk::daemon::state::PROTOCOL_VERSION,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .await;
     let result: HandshakeResult = match resp.body {
         ResponseBody::Ok(v) => serde_json::from_value(v).unwrap(),
         ResponseBody::Err(e) => panic!("expected ok handshake, got {e:?}"),
     };
-    assert_eq!(result.protocol_version, "1.0");
+    assert_eq!(
+        result.protocol_version,
+        bsk::daemon::state::PROTOCOL_VERSION
+    );
     assert_eq!(
         result
             .min_compatible_peer
@@ -134,8 +142,14 @@ async fn handshake_ok_when_protocol_matches() {
 async fn handshake_ok_when_app_versions_differ_but_protocol_matches() {
     let (handle, _sock) = spawn_daemon().await;
     let mut ws = open_ws(handle.ws_addr()).await;
-    let resp =
-        send_handshake_with_floors(&mut ws, "1.0", "9.9.9", Some("0.0.0"), Some("1.0")).await;
+    let resp = send_handshake_with_floors(
+        &mut ws,
+        bsk::daemon::state::PROTOCOL_VERSION,
+        "9.9.9",
+        Some("0.0.0"),
+        Some("1.1"),
+    )
+    .await;
     match resp.body {
         ResponseBody::Ok(_) => {}
         other => panic!("expected ok when protocol matches, got {other:?}"),
@@ -149,10 +163,10 @@ async fn handshake_skew_when_protocol_minor_differs() {
     let mut ws = open_ws(handle.ws_addr()).await;
     let resp = send_handshake_with_floors(
         &mut ws,
-        "1.1",
+        "1.3",
         env!("CARGO_PKG_VERSION"),
         Some("0.0.0"),
-        Some("1.0"),
+        Some("1.1"),
     )
     .await;
     match resp.body {
@@ -210,7 +224,7 @@ async fn handshake_legacy_ext_without_protocol_floor_still_ok() {
     let mut ws = open_ws(handle.ws_addr()).await;
     let resp = send_handshake_with_floors(
         &mut ws,
-        "1.0",
+        "1.1",
         env!("CARGO_PKG_VERSION"),
         Some("0.1.0"),
         None,
@@ -235,7 +249,7 @@ async fn status_surfaces_version_skew_for_skewed_browser() {
         browser_name: "chrome".into(),
         browser_version: "131.0".into(),
         extension_version: "9.9.9".into(),
-        extension_protocol_version: "1.1".into(),
+        extension_protocol_version: "1.3".into(),
         label: "Older".into(),
         sink: bsk::daemon::browsers::BrowserSink { tx },
         pending: Mutex::new(bsk::daemon::browsers::Pending::default()),
@@ -263,8 +277,11 @@ async fn status_surfaces_version_skew_for_skewed_browser() {
         .iter()
         .find(|s| s.instance_id == "skew-only-test")
         .expect("status must list our skew client");
-    assert_eq!(skew.client_protocol_version, "1.1");
-    assert_eq!(skew.server_protocol_version, "1.0");
+    assert_eq!(skew.client_protocol_version, "1.3");
+    assert_eq!(
+        skew.server_protocol_version,
+        bsk::daemon::state::PROTOCOL_VERSION
+    );
     assert_eq!(skew.client_version, "9.9.9");
     let entry = status
         .browsers
@@ -281,7 +298,7 @@ async fn handshake_rejects_when_local_below_peer_min_compatible_protocol() {
     let mut ws = open_ws(handle.ws_addr()).await;
     let resp = send_handshake_with_floors(
         &mut ws,
-        "1.0",
+        "1.1",
         env!("CARGO_PKG_VERSION"),
         Some("0.0.0"),
         Some("99.0.0"),

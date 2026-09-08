@@ -39,7 +39,7 @@ describe("attachSessionEventHandler", () => {
       agentWindow: {
         create: vi.fn(async () => 4242),
         remove: vi.fn(async () => {}),
-        ensureActiveTab: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => 1),
       },
     });
     await manager.start("aa11");
@@ -73,7 +73,7 @@ describe("attachSessionEventHandler", () => {
       agentWindow: {
         create: vi.fn(async () => 4242),
         remove: vi.fn(async () => {}),
-        ensureActiveTab: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => 1),
       },
       currentTab: { getLastFocusedActiveTab: async () => ({ windowId: 50, tabId: 60 }) },
     });
@@ -105,7 +105,7 @@ describe("attachSessionEventHandler", () => {
       agentWindow: {
         create: vi.fn(async () => 4242),
         remove: vi.fn(async () => {}),
-        ensureActiveTab: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => 1),
       },
     });
     const ctx = await manager.start("aa11");
@@ -119,6 +119,7 @@ describe("attachSessionEventHandler", () => {
       windowEvents: events.api,
     });
 
+    manager.forgetClosedTab(7, { isWindowClosing: true });
     events.emit(4242);
     for (let i = 0; i < 4; i += 1) await Promise.resolve();
 
@@ -145,7 +146,7 @@ describe("attachSessionEventHandler", () => {
       agentWindow: {
         create: vi.fn(async () => 1),
         remove: vi.fn(),
-        ensureActiveTab: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => 1),
       },
     });
     const transport = fakeTransport();
@@ -161,7 +162,7 @@ describe("attachSessionEventHandler", () => {
       agentWindow: {
         create: vi.fn(async () => 1),
         remove: vi.fn(),
-        ensureActiveTab: vi.fn(async () => {}),
+        ensureActiveTab: vi.fn(async () => 1),
       },
     });
     const transport = fakeTransport();

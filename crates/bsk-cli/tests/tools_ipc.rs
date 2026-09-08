@@ -479,6 +479,7 @@ async fn observe_returns_semantic_text_and_ref_count() {
                 tab_id: 13,
                 truncated: false,
                 dialogs: vec![],
+                hover_probe: None,
                 debug: None,
             })
             .unwrap(),
@@ -495,6 +496,7 @@ async fn observe_returns_semantic_text_and_ref_count() {
             max_depth: None,
             max_tokens: None,
             debug_surfaces: false,
+            probe_hover: false,
         },
     )
     .await
