@@ -14,6 +14,12 @@ const pkg = JSON.parse(readFileSync(resolve(here, "package.json"), "utf8")) as {
 const EXTENSION_VERSION = pkg.version;
 const LOGO_PATH = resolve(here, "assets/logo.png");
 
+// Self-hosted auto-update: when `BSK_UPDATE_URL` is set at build time
+// (by browser-ext-install/scripts/build-crx.*), bake a manifest
+// `update_url` pointing at the hosted `updates.xml`. Left unset for
+// `wxt dev` and plain builds so those artifacts never point anywhere.
+const UPDATE_URL = process.env.BSK_UPDATE_URL?.trim() || undefined;
+
 const resolvePackageSource = (pkg: string) => resolve(here, `../../packages/${pkg}/src/index.ts`);
 
 // browser-skill extension: MV3, talks to local bsk daemon over WebSocket.
@@ -27,6 +33,9 @@ export default defineConfig({
       "Let AI agents use your logged-in browser in a separate Agent Window—without interrupting your work. Powered by the bsk CLI.",
     // Flat debugger sessions are required to address out-of-process iframes.
     minimum_chrome_version: "125",
+    // Present only for production builds that target a hosted update
+    // manifest; omitted otherwise so dev/plain builds stay self-contained.
+    ...(UPDATE_URL ? { update_url: UPDATE_URL } : {}),
     permissions: [
       "alarms",
       "debugger",
