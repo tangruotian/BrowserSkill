@@ -47,11 +47,31 @@ export class ObservationNodeIndex {
   readonly #refById = new Map<string, RenderedRef>();
   readonly #refsByFrame = new Map<string, RenderedRef[]>();
   readonly #scopeByProducer = new Map<string, RecordingDocumentScope | null>();
+  readonly #framePaths = new Map<string, { origin: string; pathPrefix: string }[]>();
 
   constructor(
     input: Pick<CaptureVomObservationResult, "rootFrameId" | "matchNodes" | "refs"> &
       Partial<Pick<CaptureVomObservationResult, "frames">>,
   ) {
+    const frames = new Map((input.frames ?? []).map((f) => [f.frameId, f]));
+    this.#framePaths.set(input.rootFrameId, []);
+    for (const frame of frames.values()) {
+      const path: { origin: string; pathPrefix: string }[] = [];
+      const seen = new Set<string>();
+      let current: typeof frame | undefined = frame;
+      while (current && current.frameId !== input.rootFrameId && !seen.has(current.frameId)) {
+        seen.add(current.frameId);
+        try {
+          const url = new URL(current.url ?? "");
+          if (!["http:", "https:"].includes(url.protocol)) break;
+          path.unshift({ origin: url.origin, pathPrefix: url.pathname });
+        } catch {
+          break;
+        }
+        current = frames.get(current.parentFrameId ?? "");
+      }
+      if (current?.frameId === input.rootFrameId) this.#framePaths.set(frame.frameId, path);
+    }
     const refByNode = new Map<string, RenderedRef>();
     for (const ref of input.refs) {
       const frameId = ref.frameId ?? input.rootFrameId;
@@ -83,6 +103,10 @@ export class ObservationNodeIndex {
       bucket.push(entry);
       this.#nodesByFrameTag.set(key, bucket);
     }
+  }
+
+  framePath(frameId: string) {
+    return this.#framePaths.get(frameId);
   }
 
   candidates(frameId: string, tag: string): readonly IndexedObservationNode[] {

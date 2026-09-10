@@ -8,6 +8,7 @@
 
 /** Content-script capture descriptor before VOM geometric matching. */
 export interface CaptureTargetDescriptor {
+  evidence?: import("@/transport/types").TargetEvidenceV3;
   role?: string;
   name?: string;
   tag: string;
@@ -324,6 +325,68 @@ function nearbyLabelText(el: Element): string | undefined {
   return undefined;
 }
 
+function captureEvidence(el: Element): import("@/transport/types").TargetEvidenceV3 {
+  const tag = el.tagName.toLowerCase();
+  let selector = tag;
+  for (const attribute of ["data-testid", "data-test", "id", "name"]) {
+    const value = el.getAttribute(attribute);
+    if (!value || value.length > 100 || /[0-9a-f]{16,}/i.test(value)) continue;
+    const candidate = tag + "[" + attribute + '="' + CSS.escape(value) + '"]';
+    if (el.ownerDocument.querySelectorAll(candidate).length === 1) {
+      selector = candidate;
+      break;
+    }
+  }
+  if (selector === tag) {
+    selector += [...el.classList]
+      .filter(
+        (name) =>
+          /^[a-zA-Z_-]{2,64}$/.test(name) &&
+          !/(selected|checked|active|hover|focus|disabled|highlight)/i.test(name),
+      )
+      .slice(0, 3)
+      .map((name) => "." + CSS.escape(name))
+      .join("");
+  }
+  const text = (el.textContent ?? "").trim();
+  const context = nearbyLabelText(el);
+  const ancestors: { selector: string; classes: string[]; attributes: Record<string, string> }[] =
+    [];
+  let parent: Element | null = el;
+  for (let i = 0; parent && i < 6; i++, parent = parent.parentElement) {
+    const classes = [...parent.classList]
+      .filter((c) => /^[a-zA-Z_-][a-zA-Z0-9_-]{0,99}$/.test(c))
+      .slice(0, 12);
+    const stable = classes.filter(
+      (c) => !/(selected|checked|active|hover|focus|disabled|highlight)/i.test(c),
+    );
+    if (!classes.length && !parent.hasAttribute("role")) continue;
+    const attributes: Record<string, string> = {};
+    for (const attr of [
+      "role",
+      "aria-selected",
+      "aria-checked",
+      "aria-expanded",
+      "aria-multiselectable",
+    ])
+      if (parent.hasAttribute(attr)) attributes[attr] = parent.getAttribute(attr)!;
+    ancestors.push({
+      selector: parent.tagName.toLowerCase() + stable.map((c) => "." + CSS.escape(c)).join(""),
+      classes,
+      attributes,
+    });
+  }
+  return {
+    selector,
+    tag,
+    ...(ancestors.length ? { ancestors } : {}),
+    ...(text && text.length <= 1000 && text === accessibleName(el) ? { text } : {}),
+    ...(context ? { context } : {}),
+    ...(el instanceof HTMLInputElement && ["checkbox", "radio"].includes(el.type)
+      ? { checked: el.checked }
+      : {}),
+  };
+}
 export function describeTarget(el: Element): CaptureTargetDescriptor {
   const tag = el.tagName.toLowerCase();
   const role = inferRole(el);
@@ -343,6 +406,7 @@ export function describeTarget(el: Element): CaptureTargetDescriptor {
 
   return {
     tag,
+    evidence: captureEvidence(el),
     ...(role ? { role } : {}),
     ...(name ? { name } : {}),
     ...(nameAttr ? { name_attr: nameAttr } : {}),

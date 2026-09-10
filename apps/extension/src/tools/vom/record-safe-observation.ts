@@ -7,6 +7,7 @@ import type { CapturedFrameDocument, FrameAxNode } from "./frame-capture";
 /** Frame identity needed to resolve an `@eN` that lives in an iframe. */
 export interface CaptureVomFrame {
   frameId: string;
+  url?: string;
   target: CdpTarget;
   parentFrameId?: string;
   ownerBackendNodeId?: number;
@@ -59,6 +60,7 @@ function projectFrames(documents: CapturedFrameDocument<FrameAxNode>[]): Capture
     }
     return {
       frameId: document.frameId,
+      ...(document.url ? { url: document.url } : {}),
       target: document.target,
       ...(document.parentFrameId ? { parentFrameId: document.parentFrameId } : {}),
       ...(document.ownerBackendNodeId !== undefined

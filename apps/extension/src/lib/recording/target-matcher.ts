@@ -53,7 +53,7 @@ function descriptor(ref: RenderedRef): TargetDescriptorV3 {
   };
 }
 
-export function matchObservationTarget(input: {
+function matchTarget(input: {
   observation: RegisteredObservation;
   hint?: TargetMatchHint;
   fallback?: CaptureTargetDescriptor;
@@ -83,4 +83,17 @@ export function matchObservationTarget(input: {
   return semanticMatches.length === 1
     ? descriptor(semanticMatches[0]!)
     : unmatchedTarget(input.fallback);
+}
+
+export function matchObservationTarget(
+  input: Parameters<typeof matchTarget>[0],
+): TargetDescriptorV3 {
+  const target = matchTarget(input);
+  const frameId =
+    input.hint?.frameId === null
+      ? undefined
+      : (input.hint?.frameId ?? input.observation.rootFrameId);
+  const frame = frameId ? input.observation.index.framePath(frameId) : undefined;
+  const evidence = { ...input.fallback?.evidence, ...(frame ? { frame } : {}) };
+  return Object.keys(evidence).length ? { ...target, evidence } : target;
 }

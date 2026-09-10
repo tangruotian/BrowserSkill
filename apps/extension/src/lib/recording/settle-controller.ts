@@ -2,6 +2,7 @@ import type { CdpRunner, ChromeTabsApi } from "@/tools/shared";
 import { type DocumentSettleScope, waitForDocumentSettled } from "./document-settle";
 import { RecordingObservationSession } from "./observation-session";
 import type { RecordingDraftStep } from "./types";
+import { captureAfter } from "./post-evidence";
 
 interface PendingSettle {
   abort: AbortController;
@@ -119,6 +120,9 @@ export class SettleController {
         const observation = await this.#captureWithRetry(pending.abort.signal);
         if (!pending.abort.signal.aborted && drafts[draftIndex]) {
           drafts[draftIndex].postStateId = observation.stateId;
+          const draft = drafts[draftIndex];
+          if ("captureTarget" in draft)
+            await captureAfter(this.#cdp, this.#tabId, draft, pending.abort.signal);
         }
       } catch (error) {
         if (!isAbortError(error)) {
@@ -156,10 +160,13 @@ export class SettleController {
       if (!draft || draft.postStateId) break;
       trailing.push(draft);
     }
+    const last = drafts.at(-1);
+    if (last && !trailing.includes(last)) trailing.push(last);
     if (trailing.length === 0) return;
     try {
       const observation = await this.#captureWithRetry();
       for (const draft of trailing) draft.postStateId = observation.stateId;
+      if (last && "captureTarget" in last) await captureAfter(this.#cdp, this.#tabId, last);
     } catch (error) {
       console.warn("[bsk record] final observation at stop failed", error);
     }

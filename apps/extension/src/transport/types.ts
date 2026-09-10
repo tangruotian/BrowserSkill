@@ -739,7 +739,30 @@ export const TRACE_VERSION_V3 = 3;
 export const TRACE_VERSION_V2 = 2;
 export const VOM_FORMAT_VERSION = 1;
 
+export interface TargetEvidenceV3 {
+  observedAt?: number;
+  after?: {
+    status: "observed" | "unavailable";
+    observedAt: number;
+    url?: string;
+    text?: string;
+    textTruncated?: boolean;
+    value?: string | null;
+    checked?: boolean;
+    ancestors?: { selector: string; classes: string[]; attributes: Record<string, string> }[];
+    reason?: string;
+  };
+
+  ancestors?: { selector: string; classes: string[]; attributes: Record<string, string> }[];
+  frame?: { origin: string; pathPrefix: string }[];
+  selector?: string;
+  tag?: string;
+  text?: string;
+  context?: string;
+  checked?: boolean;
+}
 export interface TargetDescriptorV3 {
+  evidence?: TargetEvidenceV3;
   ref?: string;
   role?: string;
   name?: string;

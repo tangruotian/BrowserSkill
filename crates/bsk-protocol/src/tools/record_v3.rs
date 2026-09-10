@@ -36,6 +36,8 @@ fn trace_v3_version_schema(_: &mut schemars::r#gen::SchemaGenerator) -> schemars
 /// Stable semantic handle for an interacted element within a page observation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TargetDescriptorV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "ref")]
     pub element_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +213,7 @@ mod tests {
             role: Some("button".into()),
             name: Some("发布".into()),
             ctx: Some("金桔柠檬 6 号".into()),
+            evidence: None,
             unmatched: false,
         }
     }
@@ -258,6 +261,7 @@ mod tests {
                         role: Some("textbox".into()),
                         name: Some("搜索商品".into()),
                         ctx: None,
+                        evidence: None,
                         unmatched: false,
                     },
                     value: "金桔柠檬".into(),
@@ -296,6 +300,7 @@ mod tests {
                 role: Some("textbox".into()),
                 name: Some("搜索商品".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
             value: "browser skill".into(),
@@ -319,6 +324,7 @@ mod tests {
                 role: Some("textbox".into()),
                 name: Some("密码".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
             value: "***".into(),
@@ -378,6 +384,7 @@ mod tests {
                 role: Some("button".into()),
                 name: Some("OK".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
         };
@@ -385,6 +392,14 @@ mod tests {
         assert!(v.get("unmatched").is_none());
         assert!(v["target"].get("ctx").is_none());
         assert!(v["target"].get("unmatched").is_none());
+    }
+
+    #[test]
+    fn target_evidence_survives_roundtrip() {
+        let value = json!({"name":"服务","unmatched":true,"evidence":{"selector":"li.option","frame":[{"origin":"https://child.test","pathPrefix":"/form"}]}});
+        let target: TargetDescriptorV3 = serde_json::from_value(value.clone()).unwrap();
+        let saved = serde_json::to_value(target).unwrap();
+        assert_eq!(saved["evidence"], value["evidence"]);
     }
 
     #[test]
@@ -396,6 +411,7 @@ mod tests {
                 role: Some("button".into()),
                 name: Some("发布".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: true,
             },
         };

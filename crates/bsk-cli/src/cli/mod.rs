@@ -23,6 +23,7 @@ pub mod logs;
 pub mod navigate;
 pub mod network;
 pub mod observe;
+pub mod pipeline;
 pub mod record;
 pub mod record_recovery;
 pub mod record_state;
@@ -190,6 +191,9 @@ pub enum Command {
 
     /// Evaluate a JavaScript expression inside the Agent Window.
     Evaluate(EvaluateArgs),
+
+    /// Execute a versioned, guarded pipeline request.
+    Pipeline(pipeline::PipelineArgs),
 
     /// Wait for a page-lifecycle event.
     #[command(name = "wait-for-navigation")]

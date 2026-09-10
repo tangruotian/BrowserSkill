@@ -626,3 +626,36 @@ async fn cancel_unknown_rpc_returns_false_without_error() {
     assert!(!reply.cancelled);
     handle.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pipeline_stage_receipt_round_trips_without_becoming_business_success() {
+    let (handle, sock) = spawn_daemon().await;
+    let mut ws = connect_ext(handle.ws_addr()).await;
+    let _ = do_handshake(&mut ws).await;
+    run_extension(ws, |req| {
+        assert_eq!(req.method, Method::ToolPipelineStep);
+        let p: bsk_protocol::tools::PipelineParams =
+            serde_json::from_value(req.params.clone().unwrap()).unwrap();
+        assert_eq!(p.request["requestId"], "attempt-1");
+        ResponseBody::Ok(json!({
+            "ok": false, "phase": "may_have_executed", "requestId": "attempt-1",
+            "error": "lost acknowledgement"
+        }))
+    });
+    let session_id = ipc_session_start(&sock).await;
+    let result: serde_json::Value = ipc_tool_call(
+        &sock,
+        Method::ToolPipelineStep,
+        bsk_protocol::tools::PipelineParams {
+            session_id,
+            tab_id: Some(4),
+            request: json!({"version":1,"op":"click","requestId":"attempt-1"}),
+        },
+    )
+    .await
+    .expect("pipeline receipt");
+    assert_eq!(result["phase"], "may_have_executed");
+    assert_eq!(result["ok"], false);
+    assert!(!Method::ToolPipelineRead.requires_interrupt_gate());
+    assert!(Method::ToolPipelineStep.requires_interrupt_gate());
+}

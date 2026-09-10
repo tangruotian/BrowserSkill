@@ -13,6 +13,7 @@ describe("describeTarget", () => {
       tag: "button",
       role: "button",
       name: "发布",
+      evidence: expect.objectContaining({ tag: "button", selector: expect.any(String) }),
     });
   });
 
@@ -27,14 +28,20 @@ describe("describeTarget", () => {
       role: "textbox",
       name: "服务名称",
       name_attr: "serviceName",
+      evidence: { tag: "input", selector: 'input[id="svc"]', context: "服务名称" },
     });
   });
 
-  it("never invents CSS selectors or @eN", () => {
+  it("captures observed tag selectors without inventing refs or positional paths", () => {
     document.body.innerHTML = `<a href="/x">详情</a>`;
     const desc = describeTarget(document.querySelector("a")!);
     expect(JSON.stringify(desc)).not.toMatch(/@e\d+|nth-of-type|#/);
-    expect(desc).toEqual({ tag: "a", role: "link", name: "详情" });
+    expect(desc).toEqual({
+      tag: "a",
+      role: "link",
+      name: "详情",
+      evidence: { tag: "a", selector: "a", text: "详情" },
+    });
   });
 
   it("prefers heading text inside SERP-style links", () => {
@@ -71,6 +78,7 @@ describe("LLM textbook click targets", () => {
       tag: "button",
       role: "button",
       name: "发布",
+      evidence: expect.objectContaining({ tag: "button", selector: expect.any(String) }),
     });
   });
 
@@ -83,6 +91,7 @@ describe("LLM textbook click targets", () => {
       tag: "button",
       role: "button",
       name: "发布",
+      evidence: expect.objectContaining({ tag: "button", selector: expect.any(String) }),
     });
   });
 

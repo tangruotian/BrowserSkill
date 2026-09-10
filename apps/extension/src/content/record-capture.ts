@@ -665,6 +665,7 @@ export function startRecordCapture(
     // Only record clicks an LLM can re-identify (named interactive controls).
     const target = describeEventTarget(eventTarget(event));
     if (!target) return;
+    if (target.evidence) target.evidence.observedAt = Date.now();
     markNavigationAction();
     emitStep({
       op: "click",

@@ -55,6 +55,7 @@ import {
   handleScreenshot,
   handleSnapshot,
 } from "./observation";
+import { handlePipeline, type PipelineParams } from "./pipeline";
 import {
   handleRecordAwait,
   handleRecordStart,
@@ -584,6 +585,16 @@ export class ToolDispatcher {
                 } satisfies RpcError),
           signal,
         );
+      case "tool.pipeline_read":
+      case "tool.pipeline_step":
+        return this.cdp
+          ? handlePipeline(
+              this.sessions,
+              req.params as PipelineParams,
+              req.method === "tool.pipeline_read",
+              { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay },
+            )
+          : { code: "unsupported", message: "pipeline requires CDP" };
       case "tool.evaluate":
         return handleEvaluate(
           this.sessions,
@@ -792,6 +803,7 @@ function sessionIdForBrowserControlMethod(req: RequestFrame): string | null {
     case "tool.select":
     case "tool.upload":
     case "tool.download":
+    case "tool.pipeline_step":
     case "tool.evaluate":
     case "tool.observe":
     case "tool.request_help":

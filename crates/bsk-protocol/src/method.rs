@@ -94,6 +94,10 @@ pub enum Method {
     ToolConsole,
     #[serde(rename = "tool.network")]
     ToolNetwork,
+    #[serde(rename = "tool.pipeline_read")]
+    ToolPipelineRead,
+    #[serde(rename = "tool.pipeline_step")]
+    ToolPipelineStep,
     #[serde(rename = "tool.evaluate")]
     ToolEvaluate,
     #[serde(rename = "tool.wait_for_navigation")]
@@ -174,6 +178,7 @@ impl Method {
             | Method::ToolUpload
             | Method::ToolDownload
             | Method::ToolEvaluate
+            | Method::ToolPipelineStep
             // May navigate via optional `url` and changes Agent Window
             // chrome; gate behind pending-interrupt like other writes.
             | Method::ToolRecordStart => MethodEffect::BrowserMutation,
@@ -192,6 +197,7 @@ impl Method {
             | Method::ToolScreenshot
             | Method::ToolConsole
             | Method::ToolNetwork
+            | Method::ToolPipelineRead
             | Method::ToolWaitForNavigation
             | Method::ToolWaitMs
             | Method::ToolRequestHelp

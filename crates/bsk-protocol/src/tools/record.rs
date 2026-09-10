@@ -293,6 +293,7 @@ mod tests {
             role: Some("button".into()),
             name: Some("发布".into()),
             ctx: Some("金桔柠檬 6 号".into()),
+            evidence: None,
             unmatched: false,
         }
     }
@@ -340,6 +341,7 @@ mod tests {
                         role: Some("textbox".into()),
                         name: Some("搜索商品".into()),
                         ctx: None,
+                        evidence: None,
                         unmatched: false,
                     },
                     value: "金桔柠檬".into(),
@@ -378,6 +380,7 @@ mod tests {
                 role: Some("textbox".into()),
                 name: Some("搜索商品".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
             value: "browser skill".into(),
@@ -401,6 +404,7 @@ mod tests {
                 role: Some("textbox".into()),
                 name: Some("密码".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
             value: "***".into(),
@@ -460,6 +464,7 @@ mod tests {
                 role: Some("button".into()),
                 name: Some("OK".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: false,
             },
         };
@@ -512,6 +517,7 @@ mod tests {
                 role: Some("button".into()),
                 name: Some("发布".into()),
                 ctx: None,
+                evidence: None,
                 unmatched: true,
             },
         };

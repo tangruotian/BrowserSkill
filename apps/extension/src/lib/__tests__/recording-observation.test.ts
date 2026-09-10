@@ -141,6 +141,7 @@ describe("draft binding", () => {
       role: "button",
       name: "Confirm",
       unmatched: true,
+      evidence: { frame: [] },
     });
   });
 });
