@@ -256,6 +256,86 @@ fn parses_hover_with_settle() {
 }
 
 #[test]
+fn parses_wheel_with_target_and_deltas() {
+    let cli = parse(&[
+        "bsk",
+        "wheel",
+        "#panel",
+        "--delta-x",
+        "12.5",
+        "--delta-y",
+        "600",
+        "--session",
+        "s1",
+    ]);
+    let Command::Wheel(args) = cli.command else {
+        panic!("expected wheel command");
+    };
+    assert_eq!(args.target.as_deref(), Some("#panel"));
+    assert_eq!(args.delta_x, 12.5);
+    assert_eq!(args.delta_y, 600.0);
+}
+
+#[test]
+fn parses_scroll_to_target() {
+    let cli = parse(&["bsk", "scroll-to", "@e2", "--session", "s1"]);
+    let Command::ScrollTo(args) = cli.command else {
+        panic!("expected scroll-to command");
+    };
+    assert_eq!(args.target.as_deref(), Some("@e2"));
+}
+
+#[test]
+fn parses_scroll_to_explicit_target_tab_and_timeout() {
+    for flag in ["--ref", "--selector"] {
+        let cli = parse(&[
+            "bsk",
+            "scroll-to",
+            flag,
+            "e3",
+            "--session",
+            "s1",
+            "--tab-id",
+            "42",
+            "--timeout",
+            "5s",
+        ]);
+        let Command::ScrollTo(args) = cli.command else {
+            panic!("expected scroll-to command");
+        };
+        assert_eq!(args.tab_id, Some(42));
+        assert_eq!(args.timeout, 5_000);
+        assert_eq!(
+            if flag == "--ref" {
+                args.ref_
+            } else {
+                args.selector
+            }
+            .as_deref(),
+            Some("e3")
+        );
+    }
+}
+
+#[test]
+fn parses_focus_target() {
+    let cli = parse(&["bsk", "focus", "@e2", "--session", "s1"]);
+    let Command::Focus(args) = cli.command else {
+        panic!("expected focus command");
+    };
+    assert_eq!(args.target.as_deref(), Some("@e2"));
+}
+
+#[test]
+fn parses_blur_selector() {
+    let cli = parse(&["bsk", "blur", "--selector", "#search", "--session", "s1"]);
+    let Command::Blur(args) = cli.command else {
+        panic!("expected blur command");
+    };
+    assert_eq!(args.selector.as_deref(), Some("#search"));
+}
+
+#[test]
 fn rejects_zero_click_count() {
     assert!(
         Cli::try_parse_from(["bsk", "click", "@e1", "--session", "s1", "--count", "0"]).is_err()
@@ -628,4 +708,38 @@ fn parses_session_start_no_focus() {
         panic!("expected session start subcommand");
     };
     assert!(args.no_focus);
+}
+
+#[test]
+fn parses_signed_wheel_deltas_and_optional_axes() {
+    for (options, expected) in [
+        (vec!["--delta-y", "-120"], (0.0, -120.0)),
+        (vec!["--delta-x", "-20.5"], (-20.5, 0.0)),
+        (vec!["--delta-y=-120"], (0.0, -120.0)),
+        (
+            vec!["--delta-x", "12.5", "--delta-y", "-600"],
+            (12.5, -600.0),
+        ),
+    ] {
+        let mut argv = vec!["bsk", "wheel", "--session", "s1"];
+        argv.extend(options);
+        let Command::Wheel(args) = parse(&argv).command else {
+            panic!("expected wheel");
+        };
+        assert_eq!((args.delta_x, args.delta_y), expected);
+    }
+}
+
+#[test]
+fn rejects_invalid_wheel_numbers_and_timeouts() {
+    for options in [
+        vec!["--delta-y", "NaN"],
+        vec!["--delta-x", "inf"],
+        vec!["--delta-y", "oops"],
+        vec!["--delta-y", "120", "--timeout", "0ms"],
+    ] {
+        let mut argv = vec!["bsk", "wheel", "--session", "s1"];
+        argv.extend(options);
+        assert!(Cli::try_parse_from(argv).is_err());
+    }
 }

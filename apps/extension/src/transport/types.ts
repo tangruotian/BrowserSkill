@@ -471,6 +471,81 @@ export interface HoverResult {
   dialogs?: JavaScriptDialogInfo[];
 }
 
+export interface WheelParams {
+  session_id: string;
+  ref?: string;
+  selector?: string;
+  tab_id?: number;
+  delta_x?: number;
+  delta_y?: number;
+  modifiers?: KeyModifier[];
+  timeout_ms?: number;
+}
+
+export interface WheelResult {
+  tab_id: number;
+  used_ref?: string;
+  used_selector?: string;
+  x: number;
+  y: number;
+  delta_x: number;
+  delta_y: number;
+  dialogs?: JavaScriptDialogInfo[];
+}
+
+export interface ScrollToParams {
+  session_id: string;
+  ref?: string;
+  selector?: string;
+  tab_id?: number;
+  timeout_ms?: number;
+}
+
+export interface ScrollToResult {
+  tab_id: number;
+  used_ref?: string;
+  used_selector?: string;
+  /** Clipped border-box bounds in top-level viewport CSS pixels; not an occlusion test. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  dialogs?: JavaScriptDialogInfo[];
+}
+
+export interface FocusParams {
+  session_id: string;
+  ref?: string;
+  selector?: string;
+  tab_id?: number;
+  timeout_ms?: number;
+}
+
+export interface FocusResult {
+  tab_id: number;
+  used_ref?: string;
+  used_selector?: string;
+  focused: boolean;
+  dialogs?: JavaScriptDialogInfo[];
+}
+
+export interface BlurParams {
+  session_id: string;
+  ref?: string;
+  selector?: string;
+  tab_id?: number;
+  timeout_ms?: number;
+}
+
+export interface BlurResult {
+  tab_id: number;
+  used_ref?: string;
+  used_selector?: string;
+  was_focused: boolean;
+  focused: boolean;
+  dialogs?: JavaScriptDialogInfo[];
+}
+
 export interface FillParams {
   session_id: string;
   value: string;

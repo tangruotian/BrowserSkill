@@ -49,7 +49,7 @@ describe("matchObservationTarget", () => {
       ),
       hint: { geometry: { rect: { x: 10, y: 20, w: 100, h: 30 }, tag: "button" } },
     });
-    expect(target).toEqual({ ref: "e1", role: "button", name: "发布" });
+    expect(target).toEqual({ ref: "e1", role: "button", name: "发布", evidence: { frame: [] } });
   });
 
   it("uses frame id with backend node id so sibling frames cannot collide", () => {
@@ -95,7 +95,7 @@ describe("matchObservationTarget", () => {
       hint: { geometry: { rect: { x: 10, y: 20, w: 100, h: 30 }, tag: "button" } },
       fallback: { tag: "button", name: "发布" },
     });
-    expect(target).toEqual({ name: "发布", unmatched: true });
+    expect(target).toEqual({ name: "发布", unmatched: true, evidence: { frame: [] } });
   });
 
   it("fails closed when the source Document has no VOM frame mapping", () => {

@@ -1,6 +1,4 @@
 import type { CdpTarget } from "@/browser-driver/frame-graph";
-import { resolvePipelineDocument, type FrameScope } from "./pipeline-frames";
-import { sendToCdpTarget } from "./shared";
 import type { SessionManager } from "@/session-manager/manager";
 import {
   handleClick,
@@ -10,7 +8,14 @@ import {
   handleSelect,
   type InteractionDeps,
 } from "./interaction";
-import { enforceAgentWindow, isRpcError, lookupSession, resolveTargetTab } from "./shared";
+import { type FrameScope, resolvePipelineDocument } from "./pipeline-frames";
+import {
+  enforceAgentWindow,
+  isRpcError,
+  lookupSession,
+  resolveTargetTab,
+  sendToCdpTarget,
+} from "./shared";
 
 type Scalar = string | number | boolean;
 interface SelectedSource {
@@ -91,8 +96,11 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
   const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   const inView = center.x >= 0 && center.y >= 0 && center.x < innerWidth && center.y < innerHeight;
   // Off-screen targets are scrolled by the interaction driver; dispatch rechecks the actual hit.
-  const hit = point ? document.elementFromPoint(point.x, point.y)
-    : inView && visible ? document.elementFromPoint(center.x, center.y) : this;
+  const hit = point
+    ? document.elementFromPoint(point.x, point.y)
+    : inView && visible
+      ? document.elementFromPoint(center.x, center.y)
+      : this;
   const readSource = (source: SelectedSource): string[] => {
     const roots = document.querySelectorAll(source.selector);
     if (roots.length !== 1) throw new Error("已选集合来源不唯一");
@@ -403,7 +411,13 @@ export async function handlePipeline(
     if (r.op === "page") return { ok: true, ...page };
     const url = new URL(page.url);
     if (url.origin !== r.page?.origin || !url.pathname.startsWith(r.page.pathPrefix))
-      return fail("Page identity mismatch: expected " + r.page?.origin + r.page?.pathPrefix + "; actual " + page.url);
+      return fail(
+        "Page identity mismatch: expected " +
+          r.page?.origin +
+          r.page?.pathPrefix +
+          "; actual " +
+          page.url,
+      );
     if (r.documentEpoch !== undefined && epoch !== r.documentEpoch)
       return fail("Document changed; observe again");
     const target = r.target as Target;

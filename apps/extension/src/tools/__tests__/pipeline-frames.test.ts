@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { resolvePipelineDocument } from "../pipeline-frames";
 import type { CdpRunner } from "../shared";
+
 function fixture(oopif = false) {
   const target = { tabId: 1, ...(oopif ? { sessionId: "child-session" } : {}) };
   const frames = [

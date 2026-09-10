@@ -48,7 +48,10 @@ async function setup(
   let reads = 0;
   let frameReads = 0;
   const send = vi.fn(async (_tab: number, method: string, params?: object): Promise<unknown> => {
-    if (method === "DOM.scrollIntoViewIfNeeded") { scrolled = true; return {}; }
+    if (method === "DOM.scrollIntoViewIfNeeded") {
+      scrolled = true;
+      return {};
+    }
     if (method === "DOM.getDocument")
       return { root: { nodeId: 1, backendNodeId: options.epochChange && reads++ > 0 ? 20 : 10 } };
     if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
@@ -250,22 +253,27 @@ it.each([
 });
 
 it("scrolls a unique iframe target before testing obstruction, without clicking", async () => {
- const s=await setup({frame:true, needsScroll:true});
- s.params.request.op="read";s.params.request.target!.prepare=true;
- const result=await handlePipeline(s.manager,s.params,true,s.deps);
- expect(result).toMatchObject({ok:true,prepared:true,count:1,facts:{hit:true}});
- expect(s.send).toHaveBeenCalledWith(1,"DOM.scrollIntoViewIfNeeded",{backendNodeId:102});
- expect(action).not.toHaveBeenCalled();
+  const s = await setup({ frame: true, needsScroll: true });
+  s.params.request.op = "read";
+  s.params.request.target!.prepare = true;
+  const result = await handlePipeline(s.manager, s.params, true, s.deps);
+  expect(result).toMatchObject({ ok: true, prepared: true, count: 1, facts: { hit: true } });
+  expect(s.send).toHaveBeenCalledWith(1, "DOM.scrollIntoViewIfNeeded", { backendNodeId: 102 });
+  expect(action).not.toHaveBeenCalled();
 });
-it("preserves a real obstruction after scrolling",async()=>{
- const s=await setup({needsScroll:true,blocked:true});
- s.params.request.op="read";s.params.request.target!.prepare=true;
- expect(await handlePipeline(s.manager,s.params,true,s.deps)).toMatchObject({facts:{hit:false}});
- expect(action).not.toHaveBeenCalled();
+it("preserves a real obstruction after scrolling", async () => {
+  const s = await setup({ needsScroll: true, blocked: true });
+  s.params.request.op = "read";
+  s.params.request.target!.prepare = true;
+  expect(await handlePipeline(s.manager, s.params, true, s.deps)).toMatchObject({
+    facts: { hit: false },
+  });
+  expect(action).not.toHaveBeenCalled();
 });
-it.each([0,2])("does not scroll missing or ambiguous targets (count=%s)",async(count)=>{
- const s=await setup({count});
- s.params.request.op="read";s.params.request.target!.prepare=true;
- await handlePipeline(s.manager,s.params,true,s.deps);
- expect(s.send.mock.calls.some(call=>call[1]==="DOM.scrollIntoViewIfNeeded")).toBe(false);
+it.each([0, 2])("does not scroll missing or ambiguous targets (count=%s)", async (count) => {
+  const s = await setup({ count });
+  s.params.request.op = "read";
+  s.params.request.target!.prepare = true;
+  await handlePipeline(s.manager, s.params, true, s.deps);
+  expect(s.send.mock.calls.some((call) => call[1] === "DOM.scrollIntoViewIfNeeded")).toBe(false);
 });

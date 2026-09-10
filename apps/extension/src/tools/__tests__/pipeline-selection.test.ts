@@ -1,5 +1,6 @@
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { facts } from "../pipeline";
+
 beforeEach(() => {
   document.body.innerHTML =
     '<button id="dropdown">services</button><ul id="options"><li class="option" aria-selected="true">auth</li><li class="option" aria-selected="false">env</li></ul>';

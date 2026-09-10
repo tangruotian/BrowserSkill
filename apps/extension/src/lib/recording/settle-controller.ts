@@ -1,8 +1,8 @@
 import type { CdpRunner, ChromeTabsApi } from "@/tools/shared";
 import { type DocumentSettleScope, waitForDocumentSettled } from "./document-settle";
 import { RecordingObservationSession } from "./observation-session";
-import type { RecordingDraftStep } from "./types";
 import { captureAfter } from "./post-evidence";
+import type { RecordingDraftStep } from "./types";
 
 interface PendingSettle {
   abort: AbortController;

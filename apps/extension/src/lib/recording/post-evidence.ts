@@ -1,7 +1,7 @@
 import { resolvePipelineDocument } from "@/tools/pipeline-frames";
-import { sendToCdpTarget, type CdpRunner } from "@/tools/shared";
-import type { TargetedRecordingDraft } from "./types";
+import { type CdpRunner, sendToCdpTarget } from "@/tools/shared";
 import type { TargetEvidenceV3 } from "@/transport/types";
+import type { TargetedRecordingDraft } from "./types";
 
 // Runs in the target document; all selectors and expected text are data.
 export function localAfter(this: Element, expected?: string) {

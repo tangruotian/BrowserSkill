@@ -1,8 +1,9 @@
 import { expect, it, vi } from "vitest";
+import type { CdpRunner, ChromeTabsApi } from "@/tools/shared";
+import type { RecordingObservationSession } from "../recording/observation-session";
 import { localAfter } from "../recording/post-evidence";
 import { SettleController } from "../recording/settle-controller";
-import type { RecordingObservationSession } from "../recording/observation-session";
-import type { CdpRunner, ChromeTabsApi } from "@/tools/shared";
+
 it("captures selected class after click without including transient classes in the locator", () => {
   document.body.innerHTML =
     '<ul class="bk-options"><li class="bk-option is-highlight is-selected"><div class="label">auth</div></li></ul>';

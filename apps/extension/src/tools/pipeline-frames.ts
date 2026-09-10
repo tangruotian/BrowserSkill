@@ -1,5 +1,5 @@
 import type { CdpFrame, CdpTarget } from "@/browser-driver/frame-graph";
-import { sendToCdpTarget, type CdpRunner } from "./shared";
+import { type CdpRunner, sendToCdpTarget } from "./shared";
 
 export interface FrameScope {
   origin: string;
