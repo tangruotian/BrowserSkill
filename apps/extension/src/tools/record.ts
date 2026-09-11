@@ -242,6 +242,7 @@ function stepBufferFor(
   return {
     steps: recording.steps,
     navigation: recording.tabs.navigation(tabId, fallbackUrl),
+    pageIdentity: "tab:" + tabId,
   };
 }
 
@@ -407,7 +408,8 @@ export function attachRecordStepListener(deps: RecordDeps = getDefaultDeps()): (
         const targetHint = message.step.geometry ? { geometry: message.step.geometry } : undefined;
         const draftIndex = appendRecordedPayload(
           stepBufferFor(recording, sourceTabId, message.step.page_url),
-          message.step,
+          // 身份由可信的浏览器发送者补齐，不能接受页面内容自行伪造的 tab/document。
+          { ...message.step, pageIdentity: producerKey },
           targetHint,
         );
         if (draftIndex !== null) {

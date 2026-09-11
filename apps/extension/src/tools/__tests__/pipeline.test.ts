@@ -7,6 +7,7 @@ import type { CdpRunner } from "../shared";
 const action = vi.hoisted(() => vi.fn());
 vi.mock("../interaction", () => ({
   handleClick: action,
+  handleBlur: action,
   handleFill: action,
   handleSelect: action,
   handlePress: action,
@@ -34,6 +35,8 @@ async function setup(
     frame?: boolean;
     frameChange?: boolean;
     occluded?: boolean;
+    checkable?: boolean;
+    checked?: boolean;
   } = {},
 ) {
   const manager = new SessionManager({
@@ -91,6 +94,7 @@ async function setup(
             text: "C-42",
             value: "C-42",
             checked: false,
+            ...(options.checkable ? { checkable: true, checked: options.checked ?? false } : {}),
           },
         },
       };
@@ -146,6 +150,38 @@ async function setup(
   return { manager, params, deps, send };
 }
 describe("guarded Pipeline RPC", () => {
+  it("输入提交保留 fill 与 blur 两个原生阶段", async () => {
+    const s = await setup();
+    s.params.request.op = "fill";
+    s.params.request.value = "value";
+    s.params.request.commit = "blur";
+    expect(await handlePipeline(s.manager, s.params, false, s.deps)).toMatchObject({ ok: true });
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+  it("双击与右键直接传给原生动作，不能降级成默认左键", async () => {
+    const s = await setup();
+    s.params.request.button = "right";
+    s.params.request.clickCount = 2;
+    expect(await handlePipeline(s.manager, s.params, false, s.deps)).toMatchObject({ ok: true });
+    expect(action.mock.calls[0]?.[1]).toMatchObject({ button: "right", click_count: 2 });
+  });
+  it("达到期望勾选状态时不再点击，不把已选中的控件取消选中", async () => {
+    const s = await setup({ checkable: true, checked: true });
+    s.params.request.checked = true;
+    expect(await handlePipeline(s.manager, s.params, false, s.deps)).toMatchObject({
+      ok: true,
+      phase: "input_acknowledged",
+    });
+    expect(action).not.toHaveBeenCalled();
+  });
+  it("勾选动作已派发但状态未生效时回报未知，不能返回成功回执", async () => {
+    const s = await setup({ checkable: true });
+    s.params.request.checked = true;
+    expect(await handlePipeline(s.manager, s.params, false, s.deps)).toMatchObject({
+      ok: false,
+      phase: "may_have_executed",
+    });
+  });
   it("rejects mutation through the passive-read endpoint", async () => {
     const s = await setup();
     expect(await handlePipeline(s.manager, s.params, true, s.deps)).toMatchObject({

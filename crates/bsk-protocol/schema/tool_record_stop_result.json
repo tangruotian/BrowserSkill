@@ -454,8 +454,36 @@
             "to"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
             "cause": {
               "$ref": "#/definitions/NavigationCause"
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
             },
             "id": {
               "type": "integer",
@@ -467,6 +495,24 @@
               "enum": [
                 "navigate"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -490,6 +536,34 @@
             "state"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -500,6 +574,24 @@
               "enum": [
                 "switch_tab"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -521,6 +613,34 @@
             "target"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -531,6 +651,110 @@
               "enum": [
                 "click"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "result": {
+              "$ref": "#/definitions/StepResultV3"
+            },
+            "state": {
+              "description": "Observation id immediately before this action.",
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/definitions/TargetDescriptorV3"
+            }
+          }
+        },
+        {
+          "description": "Fields shared by every step variant (flattened in JSON).",
+          "type": "object",
+          "required": [
+            "fileCount",
+            "id",
+            "op",
+            "result",
+            "state",
+            "target"
+          ],
+          "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "fileCount": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "id": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "upload"
+              ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -555,6 +779,34 @@
             "target"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -565,6 +817,24 @@
               "enum": [
                 "hover"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -591,6 +861,34 @@
             "value"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "commit": {
               "$ref": "#/definitions/FillCommit"
             },
@@ -604,6 +902,24 @@
               "enum": [
                 "fill"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "redacted": {
               "type": "boolean"
@@ -634,6 +950,34 @@
             "target"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -644,6 +988,24 @@
               "enum": [
                 "select"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -674,6 +1036,34 @@
             "state"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -696,6 +1086,24 @@
               "enum": [
                 "press"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"
@@ -726,6 +1134,34 @@
             "state"
           ],
           "properties": {
+            "button": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "capturedAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0.0
+            },
+            "checked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "clickCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
             "id": {
               "type": "integer",
               "format": "uint32",
@@ -736,6 +1172,24 @@
               "enum": [
                 "scroll"
               ]
+            },
+            "pageIdentity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pageUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "qualityIssues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "result": {
               "$ref": "#/definitions/StepResultV3"

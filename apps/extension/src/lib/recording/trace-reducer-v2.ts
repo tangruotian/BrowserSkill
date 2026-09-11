@@ -156,6 +156,8 @@ function toV2Step(
     // `hover` only exists in Trace v3. Peers that negotiate v2 predate the
     // step variant and fail to decode the whole result if we emit it.
     case "hover":
+    // v2 无文件引用表示，旧协议不发送新动作；Pipeline 必须消费 v3。
+    case "upload":
     case "scroll":
     case "switch_tab":
       return null;

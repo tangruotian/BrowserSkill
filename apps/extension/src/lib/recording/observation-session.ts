@@ -33,7 +33,8 @@ function isTargeted(draft: RecordingDraftStep): draft is TargetedRecordingDraft 
     draft.op === "hover" ||
     draft.op === "fill" ||
     draft.op === "press" ||
-    draft.op === "select"
+    draft.op === "select" ||
+    draft.op === "upload"
   );
 }
 

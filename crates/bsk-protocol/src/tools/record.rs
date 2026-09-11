@@ -279,6 +279,7 @@ mod tests {
 
     fn sample_common(id: u32, state: &str, result_state: &str) -> StepCommonV3 {
         StepCommonV3 {
+            metadata: Default::default(),
             id,
             state: state.into(),
             result: StepResultV3 {

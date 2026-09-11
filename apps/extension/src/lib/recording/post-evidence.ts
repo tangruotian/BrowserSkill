@@ -40,7 +40,9 @@ export function localAfter(this: Element, expected?: string) {
     text: text.slice(0, 1000),
     textTruncated: text.length > 1000,
     value:
-      input.type === "password"
+      // 文件选择后的 value 是浏览器生成的 fakepath，不属于可移植录制参数。
+      // 与密码一样不保存，由 Pipeline 的 file:ID 在运行宿主解析实际文件。
+      input.type === "password" || input.type === "file"
         ? null
         : "value" in this
           ? String(input.value).slice(0, 1000)

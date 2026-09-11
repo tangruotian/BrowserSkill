@@ -81,9 +81,47 @@ pub struct StepResultV3 {
     pub state: String,
 }
 
+/// 录制来源与鼠标语义必须穿过 Rust CLI/daemon，避免扩展已有字段在反序列化后丢失。
+/// 可选字段兼容既有 v3；旧录制仍按原路径解析。文件路径和内容不属于此元数据。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordingMetadataV3 {
+    #[serde(
+        default,
+        rename = "qualityIssues",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub quality_issues: Vec<String>,
+    #[serde(
+        default,
+        rename = "capturedAt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub captured_at: Option<u64>,
+    #[serde(
+        default,
+        rename = "pageIdentity",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub page_identity: Option<String>,
+    #[serde(default, rename = "pageUrl", skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button: Option<String>,
+    #[serde(
+        default,
+        rename = "clickCount",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub click_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<bool>,
+}
+
 /// Fields shared by every step variant (flattened in JSON).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct StepCommonV3 {
+    #[serde(flatten)]
+    pub metadata: RecordingMetadataV3,
     pub id: u32,
     /// Observation id immediately before this action.
     pub state: String,
@@ -136,6 +174,14 @@ pub enum StepV3 {
         #[serde(flatten)]
         common: StepCommonV3,
         target: TargetDescriptorV3,
+    },
+    // 上传只保存文件数量；执行时必须提供宿主文件引用。
+    Upload {
+        #[serde(flatten)]
+        common: StepCommonV3,
+        target: TargetDescriptorV3,
+        #[serde(rename = "fileCount")]
+        file_count: u32,
     },
     Hover {
         #[serde(flatten)]
@@ -199,6 +245,7 @@ mod tests {
 
     fn sample_common(id: u32, state: &str, result_state: &str) -> StepCommonV3 {
         StepCommonV3 {
+            metadata: Default::default(),
             id,
             state: state.into(),
             result: StepResultV3 {
@@ -289,6 +336,31 @@ mod tests {
         assert_eq!(v["target"]["ref"], "e21");
         let round: StepV3 = serde_json::from_value(v).unwrap();
         assert_eq!(round, step);
+    }
+
+    #[test]
+    fn recorded_metadata_and_upload_survive_cli_roundtrip() {
+        // 扩展字段必须穿过 Rust 解码/再编码，避免导出时丢失操作语义和页面身份。
+        for op in ["click", "upload"] {
+            let value = json!({
+                "op": op, "id": 1, "state": "s1", "result": { "state": "s2" },
+                "target": { "ref": "e1", "role": "button", "name": "附件" },
+                "capturedAt": 123456, "pageIdentity": "tab:1:document:2", "pageUrl": "https://example.test",
+                "button": "right", "clickCount": 2, "checked": true, "fileCount": 1,
+                "qualityIssues": ["需要补录"]
+            });
+            let step: StepV3 = serde_json::from_value(value).unwrap();
+            let encoded = serde_json::to_value(step).unwrap();
+            assert_eq!(encoded["capturedAt"], 123456);
+            assert_eq!(encoded["pageIdentity"], "tab:1:document:2");
+            assert_eq!(encoded["button"], "right");
+            assert_eq!(encoded["clickCount"], 2);
+            assert_eq!(encoded["checked"], true);
+            assert_eq!(encoded["qualityIssues"][0], "需要补录");
+            if op == "upload" {
+                assert_eq!(encoded["fileCount"], 1);
+            }
+        }
     }
 
     #[test]

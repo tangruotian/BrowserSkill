@@ -29,6 +29,9 @@ export interface StepAnnotation {
 }
 
 interface DraftStateLink {
+  qualityIssues?: string[];
+  capturedAt?: number;
+  pageIdentity?: string;
   pageUrl?: string;
   preStateId?: string;
   postStateId?: string;
@@ -45,7 +48,15 @@ interface DraftNavigationEffect {
 }
 
 export type RecordingDraftStep =
-  | ({ op: "click" } & DraftStateLink & DraftTarget & DraftNavigationEffect)
+  | ({
+      op: "click";
+      button?: "left" | "right";
+      clickCount?: number;
+      checked?: boolean;
+    } & DraftStateLink &
+      DraftTarget &
+      DraftNavigationEffect)
+  | ({ op: "upload"; fileCount: number } & DraftStateLink & DraftTarget)
   | ({ op: "hover" } & DraftStateLink & DraftTarget)
   | ({
       op: "fill";
@@ -81,5 +92,5 @@ export type RecordingDraftStep =
 
 export type TargetedRecordingDraft = Extract<
   RecordingDraftStep,
-  { op: "click" | "hover" | "fill" | "press" | "select" }
+  { op: "click" | "hover" | "fill" | "press" | "select" | "upload" }
 >;

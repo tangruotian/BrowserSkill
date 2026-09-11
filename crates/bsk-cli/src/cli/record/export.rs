@@ -636,6 +636,8 @@ mod tests {
             }],
             steps: vec![Step::Navigate {
                 common: StepCommon {
+                    // 旧录制夹具不带新增来源元数据，验证默认值仍兼容原来的目录导出格式。
+                    metadata: Default::default(),
                     id: 1,
                     state: state_id.into(),
                     result: StepResult {

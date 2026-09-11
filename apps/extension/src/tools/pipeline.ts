@@ -2,6 +2,7 @@ import type { CdpTarget } from "@/browser-driver/frame-graph";
 import type { SessionManager } from "@/session-manager/manager";
 import {
   handleClick,
+  handleBlur,
   handleFill,
   handleHover,
   handlePress,
@@ -57,6 +58,10 @@ export interface PipelineParams {
     op: string;
     requestId?: string;
     value?: Scalar;
+    button?: "left" | "right";
+    clickCount?: number;
+    checked?: boolean;
+    commit?: "blur";
     page?: { origin: string; pathPrefix: string };
     target?: Target;
     documentEpoch?: number;
@@ -73,6 +78,7 @@ interface Facts {
   text: string;
   value: string | null;
   checked: boolean;
+  checkable?: boolean;
   hit: boolean;
   rect: { x: number; y: number; width: number; height: number };
   textTruncated: boolean;
@@ -239,6 +245,7 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
     text: text.slice(0, 4000),
     value: value?.slice(0, 4000) ?? null,
     checked: Boolean(input.checked),
+    checkable: this instanceof HTMLInputElement && ["checkbox", "radio"].includes(input.type),
     textTruncated: text.length > 4000,
     valueTruncated: (value?.length ?? 0) > 4000,
     hit: Boolean(hit && (hit === this || this.contains(hit))),
@@ -250,11 +257,23 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
   if (!r || r.version !== 1) return false;
   if (
     !(
-      read ? ["capabilities", "page", "read"] : ["click", "fill", "select", "press", "hover"]
+      read
+        ? ["capabilities", "page", "read", "prepare_upload"]
+        : ["click", "fill", "select", "press", "hover"]
     ).includes(r.op)
   )
     return false;
   if (r.op === "capabilities" || r.op === "page") return read;
+  if (r.commit !== undefined && (r.op !== "fill" || r.commit !== "blur")) return false;
+  if (
+    (r.button !== undefined && !["left", "right"].includes(r.button)) ||
+    (r.clickCount !== undefined && ![1, 2].includes(r.clickCount)) ||
+    (r.checked !== undefined && typeof r.checked !== "boolean") ||
+    (r.op !== "click" &&
+      (r.button !== undefined || r.clickCount !== undefined || r.checked !== undefined)) ||
+    (r.checked !== undefined && ((r.button ?? "left") !== "left" || (r.clickCount ?? 1) !== 1))
+  )
+    return false;
   if (!r.page || typeof r.page.origin !== "string" || typeof r.page.pathPrefix !== "string")
     return false;
   const t = r.target;
@@ -380,6 +399,7 @@ export async function handlePipeline(
       phases: true,
       selection: true,
       selectionSources: true,
+      recordedActions: 1,
     };
   const ctx = lookupSession(manager, params, "pipeline");
   if (isRpcError(ctx)) return fail(ctx.message);
@@ -429,7 +449,7 @@ export async function handlePipeline(
       sendToCdpTarget<T>(cdp, scope.target, method, args);
     if (
       scope.frame &&
-      !read &&
+      (!read || r.op === "prepare_upload") &&
       (r.frameId !== scope.frame.frameId || r.frameEpoch !== scope.backendNodeId)
     )
       return fail("Frame document changed; observe again");
@@ -512,6 +532,20 @@ export async function handlePipeline(
         if (!candidate.facts.connected || !candidate.facts.matches) matches.length = 0;
       }
     }
+    if (read && r.op === "prepare_upload") {
+      if (matches.length !== 1) return fail("Upload target must match exactly once");
+      const candidate = matches[0]!;
+      if (!candidate.facts.visible || !candidate.facts.enabled)
+        return fail("Upload target is not actionable");
+      // 复用 refStore 的页签/frame 绑定，文件 staging 与 chooser 生命周期仍由 bsk upload 管理。
+      const ref = "pipeline-" + crypto.randomUUID();
+      ctx.refStore.set(ref, candidate.backendId, {
+        tabId: tid,
+        ...(scope.frame ? { frameId: scope.frame.frameId } : {}),
+        ...(scope.target.sessionId ? { cdpSessionId: scope.target.sessionId } : {}),
+      });
+      return { ok: true, ref, ...page, ...frameEvidence };
+    }
     if (read)
       return {
         ok: true,
@@ -532,6 +566,12 @@ export async function handlePipeline(
     )
       return fail("Target is not actionable");
     const ref = "pipeline-" + crypto.randomUUID();
+    if (r.checked !== undefined) {
+      if (!selected.facts.checkable) return fail("checked requires a native checkbox or radio");
+      // 设置期望状态具有幂等性：已选中时不再点击，否则重放会把控件取消选中。
+      if (selected.facts.checked === r.checked)
+        return { ok: true, phase: "input_acknowledged", requestId: r.requestId, ...page };
+    }
     ctx.refStore.set(ref, selected.backendId, {
       tabId: tid,
       ...(scope.frame ? { frameId: scope.frame.frameId } : {}),
@@ -618,7 +658,11 @@ export async function handlePipeline(
     const p = { session_id: params.session_id, tab_id: tid, ref };
     const result =
       r.op === "click"
-        ? await handleClick(manager, p, actionDeps)
+        ? await handleClick(
+            manager,
+            { ...p, button: r.button, click_count: r.clickCount },
+            actionDeps,
+          )
         : r.op === "fill"
           ? await handleFill(manager, { ...p, value: String(r.value) }, actionDeps)
           : r.op === "select"
@@ -627,6 +671,14 @@ export async function handlePipeline(
               ? await handlePress(manager, { ...p, key: String(r.value) }, actionDeps)
               : await handleHover(manager, p, actionDeps);
     if (isRpcError(result)) return fail(result.message);
+    if (r.op === "fill" && r.commit === "blur") {
+      // 填写和失焦属于同一次录制输入的两个阶段，第二阶段失败时保留 may_have_executed。
+      // 复用 bsk 的原生 blur 和页面保护，不用注入业务脚本模拟 change/submit。
+      const blurred = await handleBlur(manager, p, actionDeps);
+      if (isRpcError(blurred)) return fail(blurred.message);
+    }
+    if (r.checked !== undefined && (await inspect(selected.objectId)).checked !== r.checked)
+      return fail("Checkbox state did not reach the requested value");
     return { ok: true, phase: "input_acknowledged", requestId: r.requestId, ...page };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Pipeline failed");

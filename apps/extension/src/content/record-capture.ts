@@ -362,7 +362,7 @@ export function startRecordCapture(
   options: { captureNavigation?: boolean } = {},
 ): RecordCaptureController {
   const emitStep = (step: RecordStepPayload) => {
-    sendStep({ page_url: location.href, ...step });
+    sendStep({ capturedAt: Date.now(), page_url: location.href, ...step });
   };
   const hoverSurfaceStateMap = (states: HoverSurfaceState[]): Map<Element, string> =>
     new Map(states.map((state) => [state.element, state.signature]));
@@ -671,6 +671,8 @@ export function startRecordCapture(
       op: "click",
       target,
       geometry: geometryForEventTarget(eventTarget(event)),
+      ...(event.type === "contextmenu" ? { button: "right" as const } : {}),
+      ...(event.detail > 1 ? { clickCount: event.detail } : {}),
       expects_navigation: true,
     });
   };
@@ -727,6 +729,17 @@ export function startRecordCapture(
     if (event.button !== 0) return;
     const target = eventTarget(event);
     if (isOverlayTarget(target)) return;
+    // 原生勾选使用 change 后的最终状态，避免 label 的合成 click 被重复录制。
+    // 上传也等待文件选择完成，仅记录文件引用需求，绝不录制 fakepath 或文件内容。
+    const associatedLabel = target instanceof Element ? target.closest("label") : null;
+    const control =
+      associatedLabel instanceof HTMLLabelElement
+        ? associatedLabel.control
+        : target instanceof Element
+          ? target.closest("input")
+          : null;
+    if (control instanceof HTMLInputElement && ["checkbox", "radio", "file"].includes(control.type))
+      return;
     if (event.detail === 0 && generatedControlClick !== null && target === generatedControlClick) {
       generatedControlClick = null;
       return;
@@ -821,6 +834,18 @@ export function startRecordCapture(
   const onChange = (event: Event) => {
     commitFillSession();
     const target = eventTarget(event);
+    if (isOverlayTarget(target)) return;
+    if (target instanceof HTMLInputElement && ["checkbox", "radio", "file"].includes(target.type)) {
+      emitHoverCandidateBeforeAction(target);
+      emitStep({
+        ...(target.type === "file"
+          ? { op: "upload" as const, fileCount: target.files?.length ?? 0 }
+          : { op: "click" as const, checked: target.checked }),
+        target: describeTarget(target),
+        geometry: captureGeometry(target),
+      });
+      return;
+    }
     if (target instanceof HTMLSelectElement) {
       emitHoverCandidateBeforeAction(target);
       const values = Array.from(target.selectedOptions).map((opt) => opt.value);
@@ -888,6 +913,13 @@ export function startRecordCapture(
   };
 
   document.addEventListener("click", onClick, true);
+  // contextmenu 保留原生行为；记录监听器不 preventDefault、不修改用户页面。
+  const onContextMenu = (event: MouseEvent) => {
+    if (isOverlayTarget(eventTarget(event))) return;
+    commitFillSession();
+    emitClick(event);
+  };
+  document.addEventListener("contextmenu", onContextMenu, true);
   document.addEventListener("mouseover", onMouseOver, true);
   document.addEventListener("focusin", onFocusIn, true);
   document.addEventListener("focusout", onFocusOut, true);
@@ -929,6 +961,7 @@ export function startRecordCapture(
     dispose() {
       commitFillSession();
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("contextmenu", onContextMenu, true);
       document.removeEventListener("mouseover", onMouseOver, true);
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("focusout", onFocusOut, true);

@@ -11,6 +11,7 @@ interface PendingSettle {
 
 interface PendingRedirect {
   url: string;
+  capturedAt: number;
   abort: AbortController;
 }
 
@@ -179,7 +180,7 @@ export class SettleController {
 
   scheduleRedirect(drafts: RecordingDraftStep[], url: string): void {
     this.#pendingRedirect?.abort.abort();
-    const pending: PendingRedirect = { url, abort: new AbortController() };
+    const pending: PendingRedirect = { url, capturedAt: Date.now(), abort: new AbortController() };
     this.#pendingRedirect = pending;
     const task = () => this.#settleRedirect(drafts, pending);
     this.#redirectQueue = this.#redirectQueue.then(task, task).catch(() => {});
@@ -218,6 +219,10 @@ export class SettleController {
       op: "navigate",
       url: finalUrl,
       pageUrl: finalUrl,
+      // 与地址栏导航使用相同的页签身份，才能合并同一页签的重定向链；
+      // 用户动作仍使用更细的 document/producer 身份，不能跨刷新去重。
+      pageIdentity: "tab:" + this.#tabId,
+      capturedAt: pending.capturedAt,
       cause: "browser",
       transitionQualifiers: ["server_redirect"],
       preStateId: this.#session.cursor.lastSettled?.stateId,

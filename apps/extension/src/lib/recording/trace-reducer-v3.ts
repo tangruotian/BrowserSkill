@@ -26,10 +26,25 @@ function isRedirect(step: Extract<RecordingDraftStep, { op: "navigate" }>): bool
 }
 
 function collapseRedirects(steps: RecordingDraftStep[]): CollapsedDraft[] {
+  // 排除 observedAt/after 等每次都会变化的字段，否则真实双击永远无法合并。
+  const targetIdentity = (step: RecordingDraftStep) =>
+    "captureTarget" in step
+      ? JSON.stringify({
+          selector: step.captureTarget?.evidence?.selector,
+          role: step.captureTarget?.role,
+          name: step.captureTarget?.name,
+          geometry: step.captureTarget?.evidence?.selector ? undefined : step.targetHint?.geometry,
+        })
+      : undefined;
   const output: CollapsedDraft[] = [];
   steps.forEach((step, index) => {
     const previous = output[output.length - 1];
-    if (step.op === "navigate" && previous?.draft.op === "navigate" && isRedirect(step)) {
+    if (
+      step.op === "navigate" &&
+      previous?.draft.op === "navigate" &&
+      isRedirect(step) &&
+      step.pageIdentity === previous.draft.pageIdentity
+    ) {
       previous.draft = {
         ...previous.draft,
         url: step.url,
@@ -38,7 +53,38 @@ function collapseRedirects(steps: RecordingDraftStep[]): CollapsedDraft[] {
       previous.draftIds.push(index + 1);
       return;
     }
+    // 浏览器先派发 detail=1 再派发 detail=2。合并为一个原生双击，保留第一次前态和第二次后态。
+    // 页面身份必须明确且相同，不能跨页签/刷新合并同名控件，不能吞掉中间其他操作。
+    if (
+      step.op === "click" &&
+      step.clickCount === 2 &&
+      previous?.draft.op === "click" &&
+      (previous.draft.clickCount ?? 1) === 1 &&
+      (step.button ?? "left") === (previous.draft.button ?? "left") &&
+      step.checked === undefined &&
+      previous.draft.checked === undefined &&
+      !!step.pageIdentity &&
+      step.pageIdentity === previous.draft.pageIdentity &&
+      targetIdentity(step) === targetIdentity(previous.draft) &&
+      step.capturedAt !== undefined &&
+      previous.draft.capturedAt !== undefined &&
+      step.capturedAt >= previous.draft.capturedAt &&
+      step.capturedAt - previous.draft.capturedAt <= 1000
+    ) {
+      previous.draft = {
+        ...step,
+        preStateId: previous.draft.preStateId,
+        capturedAt: previous.draft.capturedAt,
+      };
+      previous.draftIds.push(index + 1);
+      return;
+    }
     output.push({ draft: { ...step }, draftIds: [index + 1] });
+    if (step.op === "click" && step.clickCount === 2) {
+      // detail=2 却没有可合并的首击时，重放为双击会额外触发一次点击。
+      // 保留原始步骤供诊断，并显式阻塞编译，不能猜测两次事件属于同一个目标。
+      output.at(-1)!.draft.qualityIssues = ["双击的首击无法与同文档目标对应，请重新录制该动作"];
+    }
   });
   return output;
 }
@@ -81,7 +127,15 @@ function reduceDraft(
   const state = draft.preStateId ?? draft.postStateId;
   const resultState = draft.postStateId ?? draft.preStateId;
   if (!state || !resultState) return null;
-  const common = { id, state, result: { state: resultState } };
+  const common = {
+    id,
+    state,
+    result: { state: resultState },
+    ...(draft.qualityIssues?.length ? { qualityIssues: draft.qualityIssues } : {}),
+    ...(draft.capturedAt !== undefined ? { capturedAt: draft.capturedAt } : {}),
+    ...(draft.pageIdentity ? { pageIdentity: draft.pageIdentity } : {}),
+    ...(draft.pageUrl ? { pageUrl: draft.pageUrl } : {}),
+  };
 
   switch (draft.op) {
     case "navigate":
@@ -91,6 +145,16 @@ function reduceDraft(
         op: "click",
         ...common,
         target: draft.matchedTarget ?? unmatchedTarget(draft.captureTarget),
+        ...(draft.button ? { button: draft.button } : {}),
+        ...(draft.clickCount !== undefined ? { clickCount: draft.clickCount } : {}),
+        ...(draft.checked !== undefined ? { checked: draft.checked } : {}),
+      };
+    case "upload":
+      return {
+        op: "upload",
+        ...common,
+        target: draft.matchedTarget ?? unmatchedTarget(draft.captureTarget),
+        fileCount: draft.fileCount,
       };
     case "hover":
       return {

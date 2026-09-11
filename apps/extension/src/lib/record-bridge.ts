@@ -45,7 +45,15 @@ export interface RecordStartMessage {
 }
 
 export interface RecordStepPayload {
-  op: "click" | "hover" | "fill" | "press" | "select" | "navigate";
+  op: "click" | "hover" | "fill" | "press" | "select" | "navigate" | "upload";
+  /** 捕获时刻及页面身份用于参数标记与跨文档去重，不使用异步观察的完成时刻。 */
+  capturedAt?: number;
+  pageIdentity?: string;
+  button?: "left" | "right";
+  clickCount?: number;
+  checked?: boolean;
+  /** 只记录文件数量；路径和内容必须由运行时文件引用另行提供。 */
+  fileCount?: number;
   target?: CaptureTargetDescriptor;
   value?: string;
   key?: string;

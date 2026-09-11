@@ -865,6 +865,11 @@ export interface StepResultV3 {
 }
 
 export interface StepCommonV3 {
+  qualityIssues?: string[];
+  /** 录制来源是同一页签中的具体文档；刷新后即使 URL 相同也不是同一来源。 */
+  capturedAt?: number;
+  pageIdentity?: string;
+  pageUrl?: string;
   id: number;
   state: string;
   result: StepResultV3;
@@ -953,7 +958,13 @@ export interface SelectedOptionV3 {
 export type StepV3 =
   | ({ op: "navigate" } & StepCommonV3 & { to: string; cause: NavigationCause })
   | ({ op: "switch_tab" } & StepCommonV3)
-  | ({ op: "click" } & StepCommonV3 & { target: TargetDescriptorV3 })
+  | ({
+      op: "click";
+      button?: "left" | "right";
+      clickCount?: number;
+      checked?: boolean;
+    } & StepCommonV3 & { target: TargetDescriptorV3 })
+  | ({ op: "upload"; fileCount: number } & StepCommonV3 & { target: TargetDescriptorV3 })
   | ({ op: "hover" } & StepCommonV3 & { target: TargetDescriptorV3 })
   | ({ op: "fill" } & StepCommonV3 & {
         target: TargetDescriptorV3;

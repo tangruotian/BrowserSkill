@@ -3,6 +3,8 @@ import { hasRedirectQualifier } from "./navigation-policy";
 import type { RecordingDraftStep, TargetMatchHint } from "./types";
 
 export interface RecordingStepBuffer {
+  /** 浏览器级导航至少关联页签，避免不同页签的连续重定向被全局 reducer 合并。 */
+  pageIdentity?: string;
   steps: RecordingDraftStep[];
   navigation: RecordingNavigationCursor;
 }
@@ -21,12 +23,32 @@ function toDraftStep(
 ): RecordingDraftStep | null {
   const pageUrl = payload.page_url;
   const common = {
+    ...(payload.capturedAt !== undefined ? { capturedAt: payload.capturedAt } : {}),
+    ...(payload.pageIdentity ? { pageIdentity: payload.pageIdentity } : {}),
     ...(pageUrl ? { pageUrl } : {}),
     ...(targetHint ? { targetHint } : {}),
   };
   switch (payload.op) {
     case "click":
-      return payload.target ? { op: "click", captureTarget: payload.target, ...common } : null;
+      return payload.target
+        ? {
+            op: "click",
+            captureTarget: payload.target,
+            ...common,
+            ...(payload.button ? { button: payload.button } : {}),
+            ...(payload.clickCount !== undefined ? { clickCount: payload.clickCount } : {}),
+            ...(payload.checked !== undefined ? { checked: payload.checked } : {}),
+          }
+        : null;
+    case "upload":
+      return payload.target
+        ? {
+            op: "upload",
+            captureTarget: payload.target,
+            fileCount: payload.fileCount ?? 0,
+            ...common,
+          }
+        : null;
     case "hover":
       return payload.target ? { op: "hover", captureTarget: payload.target, ...common } : null;
     case "fill":
@@ -117,6 +139,8 @@ export function observeRecordedNavigation(
     op: "navigate",
     url,
     pageUrl: url,
+    capturedAt: Date.now(),
+    ...(buffer.pageIdentity ? { pageIdentity: buffer.pageIdentity } : {}),
     transitionType,
     transitionQualifiers,
   });
