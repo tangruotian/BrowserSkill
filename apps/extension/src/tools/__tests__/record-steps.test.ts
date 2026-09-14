@@ -201,6 +201,27 @@ function makeFakeCdp(
   };
 }
 
+/**
+ * Wrap a fake CDP runner so a test can assert *which* commands were issued.
+ * Used to prove that in-place recording never sends `Page.navigate`, which is
+ * the only observable difference between "record here" and "reload first".
+ */
+function spyCdp(inner: FakeCdp): { cdp: FakeCdp; methods: string[] } {
+  const methods: string[] = [];
+  const cdp: FakeCdp = {
+    ...inner,
+    send: (async (tabId: number, method: string, params: unknown) => {
+      methods.push(method);
+      return (inner.send as (t: number, m: string, p: unknown) => Promise<unknown>)(
+        tabId,
+        method,
+        params,
+      );
+    }) as CdpRunner["send"],
+  };
+  return { cdp, methods };
+}
+
 function makeTabsApi() {
   const tab = {
     id: TAB_ID,
@@ -349,6 +370,93 @@ describe("recorded user steps reach the exported trace", () => {
     expect(trace.steps).toHaveLength(1);
     expect(trace.steps[0]?.op).toBe("click");
     expect(sendToTab.mock.calls.every(([tabId]) => tabId === TAB_ID)).toBe(true);
+  });
+
+  /**
+   * `record start --attach-current-tab` without `--url` must not navigate: the
+   * whole point is to demonstrate on the page the user is already on, which a
+   * reload would discard. The trace must therefore enter on that live URL, not
+   * on the Agent Window default start page.
+   */
+  it("records a current-tab session in place, without navigating, when no url is given", async () => {
+    installChrome();
+    const userUrl = "https://app.example/orders?id=42";
+    const manager = new SessionManager({
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({
+          windowId: AGENT_WINDOW_ID,
+          tabId: TAB_ID,
+          url: userUrl,
+        }),
+      },
+    });
+    await manager.start("abcd", { mode: "current_tab" });
+    const tabsApi = makeMultiTabsApi([
+      {
+        id: TAB_ID,
+        windowId: AGENT_WINDOW_ID,
+        active: true,
+        status: "complete",
+        url: userUrl,
+        title: "Orders",
+      } as chrome.tabs.Tab,
+    ]);
+    const sendToTab = vi.fn(async (_tabId: number, _msg: unknown) => ({ ok: true }));
+    const { cdp, methods } = spyCdp(makeFakeCdp());
+    const deps = { tabsApi, sendToTab, cdp };
+
+    expect(
+      await handleRecordStart(
+        manager,
+        { session_id: "abcd", trace_version: 3 as const, supports_tab_switch_steps: true },
+        deps,
+      ),
+    ).toEqual({ tab_id: TAB_ID, recording: true });
+    expect(methods).not.toContain("Page.navigate");
+
+    const stopped = await handleRecordStop(manager, { session_id: "abcd" }, deps);
+    expect("code" in stopped).toBe(false);
+    const trace = asTraceV3((stopped as RecordStopResult).trace);
+    expect(trace.entry.start_url).toBe(userUrl);
+  });
+
+  /**
+   * An explicit `url` is a deliberate "start the demo here" instruction and
+   * must keep navigating even for current-tab sessions, so recordings that
+   * need a known entry page stay reproducible.
+   */
+  it("still navigates a current-tab session when an explicit url is given", async () => {
+    installChrome();
+    const manager = new SessionManager({
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({
+          windowId: AGENT_WINDOW_ID,
+          tabId: TAB_ID,
+          url: "https://app.example/orders?id=42",
+        }),
+      },
+    });
+    await manager.start("abcd", { mode: "current_tab" });
+    const tabsApi = makeMultiTabsApi([
+      {
+        id: TAB_ID,
+        windowId: AGENT_WINDOW_ID,
+        active: true,
+        status: "complete",
+        url: START_URL,
+        title: "Example",
+      } as chrome.tabs.Tab,
+    ]);
+    const sendToTab = vi.fn(async (_tabId: number, _msg: unknown) => ({ ok: true }));
+    const { cdp, methods } = spyCdp(makeFakeCdp());
+    const deps = { tabsApi, sendToTab, cdp };
+
+    expect(await handleRecordStart(manager, RECORD_START_V3, deps)).toEqual({
+      tab_id: TAB_ID,
+      recording: true,
+    });
+    expect(methods).toContain("Page.navigate");
+    await handleRecordStop(manager, { session_id: "abcd" }, deps);
   });
 
   it("keeps a click captured after start, even when the step listener has no cdp", async () => {

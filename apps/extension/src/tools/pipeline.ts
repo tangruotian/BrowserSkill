@@ -471,6 +471,14 @@ export async function handlePipeline(
         backendIds.push(node.node.backendNodeId);
       }
     } else {
+      // 只用 accessibleName 让 CDP 收窄候选，role 留给下面自己比对。
+      //
+      // `Accessibility.queryAXTree` 的 role 过滤是区分大小写的精确匹配，而 Chrome
+      // 计算出的 role 并不都是小写 ARIA 名：iframe 的 role 值是 "Iframe"。契约里写
+      // role:"iframe" 时，把它原样透给 CDP 会直接过滤成 0 个节点，调用方只看到
+      // count:0，和"目标还没出现"无法区分——表现就是一路轮询到断言超时。
+      // 校验已保证语义定位必须带 name（见上方 target 校验），所以只按 name 查询
+      // 仍然足够收窄，候选数上限也照旧生效。
       const ax = await scopedSend<{
         nodes: {
           backendDOMNodeId?: number;
@@ -480,16 +488,16 @@ export async function handlePipeline(
         }[];
       }>("Accessibility.queryAXTree", {
         nodeId: scope.nodeId,
-        role: target.role,
         accessibleName: target.name,
       });
+      const wantedRole = target.role?.toLowerCase();
       backendIds = [
         ...new Set(
           ax.nodes
             .filter(
               (n) =>
                 !n.ignored &&
-                n.role?.value === target.role &&
+                n.role?.value?.toLowerCase() === wantedRole &&
                 n.name?.value === target.name &&
                 n.backendDOMNodeId,
             )

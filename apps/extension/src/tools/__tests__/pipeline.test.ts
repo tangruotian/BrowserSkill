@@ -313,3 +313,47 @@ it.each([0, 2])("does not scroll missing or ambiguous targets (count=%s)", async
   await handlePipeline(s.manager, s.params, true, s.deps);
   expect(s.send.mock.calls.some((call) => call[1] === "DOM.scrollIntoViewIfNeeded")).toBe(false);
 });
+
+/**
+ * Chrome 计算出的 AX role 并不都是小写 ARIA 名（iframe 是 "Iframe"），而契约里写的
+ * 是小写。旧实现把 role 原样透给 `Accessibility.queryAXTree` 的精确过滤，再做区分
+ * 大小写的比对，结果目标永远 count:0——调用方无法和"元素还没出现"区分，只能一路
+ * 轮询到断言超时。这里钉住：role 比对与大小写无关，且查询不再按 role 过滤。
+ */
+it.each([
+  ["Iframe", "iframe"],
+  ["iframe", "Iframe"],
+  ["button", "button"],
+])("matches an AX role regardless of case (tree=%s, contract=%s)", async (axRole, target) => {
+  const s = await setup();
+  s.params.request.op = "read";
+  s.params.request.target = { role: target, name: "iframe-box", identity: [] };
+  s.send.mockImplementation(async (tab: number, method: string, params?: object) => {
+    if (method === "Accessibility.queryAXTree") {
+      // role 不再参与查询：只能靠 accessibleName 收窄。
+      expect(params).toEqual({ nodeId: 1, accessibleName: "iframe-box" });
+      return {
+        nodes: [
+          { backendDOMNodeId: 7, role: { value: axRole }, name: { value: "iframe-box" } },
+          // 同名但角色不同的节点必须被排除，大小写无关不等于放弃角色约束。
+          { backendDOMNodeId: 8, role: { value: "image" }, name: { value: "iframe-box" } },
+        ],
+      };
+    }
+    if (method === "DOM.getDocument") return { root: { nodeId: 1, backendNodeId: 10 } };
+    if (method === "DOM.resolveNode") return { object: { objectId: "object-7" } };
+    if (method === "Runtime.callFunctionOn")
+      return {
+        result: {
+          value: { matches: true, connected: true, enabled: true, visible: true, hit: true },
+        },
+      };
+    if (method === "Runtime.releaseObjectGroup") return {};
+    throw new Error("Unexpected CDP method " + method + " on tab " + tab);
+  });
+  expect(await handlePipeline(s.manager, s.params, true, s.deps)).toMatchObject({
+    ok: true,
+    count: 1,
+    facts: { visible: true },
+  });
+});

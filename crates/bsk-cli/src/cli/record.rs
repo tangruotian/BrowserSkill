@@ -1,4 +1,5 @@
-//! `bsk record start|stop` — capture user actions in the Agent Window.
+//! `bsk record start|stop` — capture user actions in the Agent Window, or in
+//! the user's current tab with `record start --attach-current-tab`.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -6,7 +7,7 @@ use std::time::Duration;
 use anyhow::Context;
 use bsk_protocol::tools::{
     RecordAwaitParams, RecordAwaitResult, RecordStartParams, RecordStartResult, RecordStopParams,
-    RecordStopResult, RecordedTrace, TRACE_VERSION_V3,
+    RecordStopResult, RecordedTrace, SessionMode, TRACE_VERSION_V3,
 };
 use bsk_protocol::{ErrorCode, Method};
 use clap::{Args, Subcommand};
@@ -38,7 +39,9 @@ pub struct RecordCmd {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum RecordSub {
-    /// Open the Agent Window, record user actions, and block until finished in the browser.
+    /// Record user actions and block until finished in the browser. Opens an
+    /// Agent Window by default; `--attach-current-tab` records the tab the
+    /// user is already on instead.
     Start(RecordStartArgs),
     /// Stop recording from the terminal (fallback), write trace JSON, and close the window.
     /// Works even while `record start` is blocked in `record_await` (daemon forwards
@@ -56,9 +59,20 @@ pub struct RecordStartArgs {
     #[arg(long = "tab-id")]
     pub tab_id: Option<i64>,
 
-    /// Navigate to this http(s) URL before recording. When omitted, defaults
-    /// to `https://example.com/`. If that page does not load, pass `--url`
-    /// with a site you can open in this browser.
+    /// Record the active tab of the last-focused browser window in place:
+    /// no Agent Window is opened and, unless `--url` is given, the page the
+    /// user is already on is kept as-is instead of being navigated away.
+    /// Restricted internal pages cannot be recorded and are reported as an
+    /// error rather than silently replaced. Conflicts with `--tab-id`
+    /// because the attached tab is chosen by the browser, not by the caller.
+    #[arg(long, conflicts_with = "tab_id")]
+    pub attach_current_tab: bool,
+
+    /// Navigate to this http(s) URL before recording. When omitted, the
+    /// Agent Window defaults to `https://example.com/`; if that page does
+    /// not load, pass `--url` with a site you can open in this browser.
+    /// With `--attach-current-tab`, omitting `--url` means "do not navigate";
+    /// passing it explicitly still navigates the attached tab.
     #[arg(long)]
     pub url: Option<String>,
 
@@ -99,10 +113,17 @@ fn dispatch_start(args: RecordStartArgs, format: Format) -> Result<(), CliError>
     prepare_record_start(&args.output)?;
 
     let info = ensure_daemon().context("ensure daemon is running")?;
+    // `--attach-current-tab` binds the session to the tab the user is already
+    // working in; the default keeps the historical Agent Window isolation.
     let session = start_session(
         info.sock_path.clone(),
         SessionStartOptions {
             browser: args.browser,
+            mode: if args.attach_current_tab {
+                SessionMode::CurrentTab
+            } else {
+                SessionMode::AgentWindow
+            },
             ..SessionStartOptions::default()
         },
     )?;
@@ -129,7 +150,14 @@ fn dispatch_start(args: RecordStartArgs, format: Format) -> Result<(), CliError>
         Ok(result) => result,
         Err(err) => {
             let _ = stop_session(info.sock_path, &session.session_id);
-            return Err(annotate_default_start_page_error(err, args.url.as_deref()));
+            // In attach mode without `--url` the daemon never loads a default
+            // start page, so the `--url` hint would point at the wrong fix.
+            let used_default_start_page = args.url.is_none() && !args.attach_current_tab;
+            return Err(if used_default_start_page {
+                annotate_default_start_page_error(err)
+            } else {
+                err
+            });
         }
     };
 
@@ -215,12 +243,11 @@ fn dispatch_stop(args: RecordStopArgs, format: Format) -> Result<(), CliError> {
     render_finish(&trace, &args.output, &exported, format)
 }
 
-/// When `record start` omitted `--url` and the default example.com page
-/// never loaded, rewrite the RPC error so the CLI hint points at `--url`.
-fn annotate_default_start_page_error(err: CliError, user_url: Option<&str>) -> CliError {
-    if user_url.is_some() {
-        return err;
-    }
+/// When `record start` relied on the default example.com start page and that
+/// page never loaded, rewrite the RPC error so the CLI hint points at `--url`.
+/// Callers must only invoke this when a default start page was actually used
+/// (see `dispatch_start`); otherwise the hint would be misleading.
+fn annotate_default_start_page_error(err: CliError) -> CliError {
     let CliError::Rpc {
         code,
         message,
@@ -421,6 +448,7 @@ mod tests {
         let args = RecordStartArgs {
             browser: None,
             tab_id: None,
+            attach_current_tab: false,
             url: None,
             purpose: None,
             max_page_tokens: None,
@@ -443,7 +471,7 @@ mod tests {
             message: "Page.navigate rejected: net::ERR_ABORTED".into(),
             data: None,
         });
-        let annotated = annotate_default_start_page_error(err, None);
+        let annotated = annotate_default_start_page_error(err);
         assert_eq!(
             crate::cli::render_error::reason_for_data(annotated.data()),
             Some(crate::cli::render_error::reason::RECORD_START_PAGE_UNREACHABLE)
@@ -453,17 +481,24 @@ mod tests {
         assert!(info.hint.unwrap().contains("--url"));
     }
 
+    /// Non-default start pages (explicit `--url`, or `--attach-current-tab`
+    /// recording the page in place) must not be annotated: `dispatch_start`
+    /// decides that, so the helper is simply never called for them. This test
+    /// pins the decision itself so a refactor cannot reintroduce the wrong hint.
     #[test]
-    fn annotate_default_start_page_error_skips_when_user_passed_url() {
-        let err = CliError::from_rpc(bsk_protocol::RpcError {
-            code: ErrorCode::CdpFailed,
-            message: "Page.navigate rejected: net::ERR_ABORTED".into(),
-            data: None,
-        });
-        let annotated = annotate_default_start_page_error(err, Some("https://www.example.org/"));
-        assert_eq!(
-            crate::cli::render_error::reason_for_data(annotated.data()),
-            None
-        );
+    fn default_start_page_only_applies_without_url_and_without_attach() {
+        let cases = [
+            (None, false, true),
+            (Some("https://www.example.org/"), false, false),
+            (None, true, false),
+            (Some("https://www.example.org/"), true, false),
+        ];
+        for (url, attach_current_tab, expected) in cases {
+            let used_default_start_page = url.is_none() && !attach_current_tab;
+            assert_eq!(
+                used_default_start_page, expected,
+                "url={url:?} attach_current_tab={attach_current_tab}"
+            );
+        }
     }
 }

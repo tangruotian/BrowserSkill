@@ -123,7 +123,14 @@ function sleep(ms: number): Promise<void> {
 /** Recording producer version mirrored into trace.recorder.bsk. */
 export const BSK_TRACE_VERSION = EXTENSION_VERSION;
 
-/** Injectable http(s) landing page when `tool.record_start` omits `url`. */
+/**
+ * Injectable http(s) landing page when `tool.record_start` omits `url`.
+ *
+ * Only applies to Agent Window sessions: a fresh Agent Window boots on
+ * `about:blank`, where MV3 content scripts cannot attach, so recording needs
+ * *some* real page. Current-tab sessions already sit on a real page and record
+ * it in place instead (see `recordInPlace` in {@link handleRecordStart}).
+ */
 export const RECORD_DEFAULT_START_URL = "https://example.com/";
 
 /** Pages where MV3 content scripts cannot attach (Agent Window boots here). */
@@ -854,6 +861,15 @@ export async function handleRecordStart(
   const target = await resolveTargetTab(manager, ctx, params.tab_id, deps.tabsApi);
   if (isRpcError(target)) return target;
 
+  // A current-tab session with no explicit `url` records the page the user is
+  // already working in, in place: navigating would reload it and throw away
+  // exactly the state the demonstration depends on (filled forms, open menus,
+  // scroll position, and any post-login view that is not addressable by URL).
+  // An explicit `url` still wins so callers can deliberately start from a
+  // known page, and Agent Window sessions keep the historical behaviour of
+  // booting `about:blank` onto a real page before capture can attach.
+  const recordInPlace = ctx.mode === "current_tab" && params.url === undefined;
+
   // Register the recording *before* navigate so content-script syncAgentOverlay
   // on the destination page can RECORD_QUERY → rearm → show RecordOverlay
   // instead of flashing ControlOverlay ("Agent 正在控制").
@@ -864,16 +880,19 @@ export async function handleRecordStart(
     resolveFinish = resolve;
     rejectFinish = reject;
   });
-  const navigateUrl = params.url ?? RECORD_DEFAULT_START_URL;
+  const navigateUrl = recordInPlace ? undefined : (params.url ?? RECORD_DEFAULT_START_URL);
+  // Provisional start URL until the tab reports its settled one further down.
+  // In-place recording starts from whatever the attached tab already shows.
+  const initialUrl = navigateUrl ?? target.url;
   const startedAtMs = Date.now();
   const maxPageTokens = params.max_page_tokens;
   const redactValues = params.redact_values ?? false;
   recordings.set(params.session_id, {
     requestId,
-    tabs: new RecordingTabCoordinator(target.tabId, navigateUrl),
+    tabs: new RecordingTabCoordinator(target.tabId, initialUrl),
     agentWindowId: ctx.agentWindowId,
     ...(ctx.mode === "current_tab" ? { fixedTabId: target.tabId } : {}),
-    startUrl: navigateUrl,
+    startUrl: initialUrl,
     ...(params.purpose ? { purpose: params.purpose } : {}),
     steps: [],
     startedAt: new Date(startedAtMs).toISOString(),
@@ -955,7 +974,7 @@ export async function handleRecordStart(
     if (cancelled) return cancelled;
   }
 
-  if (deps.cdp) {
+  if (deps.cdp && navigateUrl !== undefined) {
     const nav = await handleNavigate(
       manager,
       {
@@ -973,6 +992,11 @@ export async function handleRecordStart(
       const cancelled = await abortIfCancelled(false);
       if (cancelled) return cancelled;
     }
+  }
+
+  if (deps.cdp) {
+    // Also awaited when recording in place: the user's tab may still be
+    // loading, and RECORD_START cannot be acked before the document settles.
     try {
       await waitForTabReady(target.tabId, deps.tabsApi);
     } catch {
@@ -989,7 +1013,7 @@ export async function handleRecordStart(
     const tab = await deps.tabsApi.get(target.tabId);
     startUrl = tab.url;
   } catch {
-    startUrl = navigateUrl;
+    startUrl = initialUrl;
   }
 
   const active = recordings.get(params.session_id);
@@ -1004,9 +1028,11 @@ export async function handleRecordStart(
     await abortPending(false);
     return {
       code: "invalid_params",
-      message: params.url
-        ? `cannot record on restricted URL (${startUrl}); use an http(s) page`
-        : `cannot record on restricted URL (${startUrl}); default start page https://example.com/ did not load — pass --url with a page you can open`,
+      message: recordInPlace
+        ? `cannot record on restricted URL (${startUrl}); switch this tab to an http(s) page, then start recording again`
+        : params.url
+          ? `cannot record on restricted URL (${startUrl}); use an http(s) page`
+          : `cannot record on restricted URL (${startUrl}); default start page https://example.com/ did not load — pass --url with a page you can open`,
     };
   }
 

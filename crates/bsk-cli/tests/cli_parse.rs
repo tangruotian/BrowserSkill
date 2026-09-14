@@ -413,6 +413,41 @@ fn parses_record_start_without_url() {
     };
     assert_eq!(args.browser.as_deref(), Some("022ca8ac"));
     assert!(args.url.is_none());
+    // Default stays Agent Window so existing recording flows are unchanged.
+    assert!(!args.attach_current_tab);
+}
+
+/// `record start --attach-current-tab` with no `--url` is the "record the page
+/// the user is already on, in place" contract consumed by chrome-agent.
+#[test]
+fn parses_record_start_attach_current_tab() {
+    let cli = parse(&["bsk", "record", "start", "--attach-current-tab"]);
+    let Command::Record(RecordCmd {
+        sub: RecordSub::Start(args),
+    }) = cli.command
+    else {
+        panic!("expected record start subcommand");
+    };
+    assert!(args.attach_current_tab);
+    assert!(args.url.is_none());
+    assert!(args.tab_id.is_none());
+}
+
+/// The attached tab is picked by the browser, so an explicit `--tab-id` would
+/// be a silently ignored contradiction rather than a narrowing of scope.
+#[test]
+fn record_start_attach_current_tab_rejects_explicit_tab_id() {
+    assert!(
+        Cli::try_parse_from([
+            "bsk",
+            "record",
+            "start",
+            "--attach-current-tab",
+            "--tab-id",
+            "7",
+        ])
+        .is_err()
+    );
 }
 
 #[test]
