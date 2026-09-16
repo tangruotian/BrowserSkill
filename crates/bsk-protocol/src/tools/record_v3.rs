@@ -105,6 +105,13 @@ pub struct RecordingMetadataV3 {
     pub page_identity: Option<String>,
     #[serde(default, rename = "pageUrl", skip_serializing_if = "Option::is_none")]
     pub page_url: Option<String>,
+    /// 顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。
+    #[serde(
+        default,
+        rename = "topLevelUrl",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub top_level_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub button: Option<String>,
     #[serde(
@@ -345,7 +352,7 @@ mod tests {
             let value = json!({
                 "op": op, "id": 1, "state": "s1", "result": { "state": "s2" },
                 "target": { "ref": "e1", "role": "button", "name": "附件" },
-                "capturedAt": 123456, "pageIdentity": "tab:1:document:2", "pageUrl": "https://example.test",
+                "capturedAt": 123456, "pageIdentity": "tab:1:document:2", "pageUrl": "https://example.test/frame", "topLevelUrl": "https://example.test/console",
                 "button": "right", "clickCount": 2, "checked": true, "fileCount": 1,
                 "qualityIssues": ["需要补录"]
             });
@@ -353,6 +360,8 @@ mod tests {
             let encoded = serde_json::to_value(step).unwrap();
             assert_eq!(encoded["capturedAt"], 123456);
             assert_eq!(encoded["pageIdentity"], "tab:1:document:2");
+            assert_eq!(encoded["topLevelUrl"], "https://example.test/console");
+            assert_eq!(encoded["pageUrl"], "https://example.test/frame");
             assert_eq!(encoded["button"], "right");
             assert_eq!(encoded["clickCount"], 2);
             assert_eq!(encoded["checked"], true);
@@ -469,6 +478,11 @@ mod tests {
     #[test]
     fn target_evidence_survives_roundtrip() {
         let value = json!({"name":"服务","unmatched":true,"evidence":{"selector":"li.option","frame":[{"origin":"https://child.test","pathPrefix":"/form"}]}});
+        // 扩展的结构化集合来源及失败诊断不能在 CLI 导出时被裁掉；evidence 保持扩展兼容。
+        let mut value = value;
+        value["evidence"]["selection"] = json!({"trigger":"#services","complete":true,"selected":["auth"],"config":{"container":"#panel","option":"li.option","selectedSource":{"kind":"text","selector":"#selected"},"discovery":{"mode":"scroll","target":"#panel","maxSteps":20}}});
+        value["evidence"]["after"] =
+            json!({"status":"unavailable","code":"document-changed","observedAt":1});
         let target: TargetDescriptorV3 = serde_json::from_value(value.clone()).unwrap();
         let saved = serde_json::to_value(target).unwrap();
         assert_eq!(saved["evidence"], value["evidence"]);

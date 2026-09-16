@@ -10,6 +10,8 @@ export interface PipelineDocument {
   target: CdpTarget;
   nodeId: number;
   backendNodeId: number;
+  /** 当前 isolated world 中的文档句柄，仅在本次 objectGroup 生命周期内使用。 */
+  objectId?: string;
 }
 export async function resolvePipelineDocument(
   cdp: CdpRunner,
@@ -59,6 +61,9 @@ export async function resolvePipelineDocument(
     { expression: "document", contextId: world.executionContextId, objectGroup: group },
   );
   if (!evaluated.result.objectId) throw new Error("Cannot resolve frame document");
+  // 子文档所在 CDP session 必须先启用 DOM 树映射，否则 requestNode 可能返回
+  // 无效的前端 nodeId。对象句柄与后端 ID 同时保留，后续读取不必再次 resolveNode。
+  await sendToCdpTarget(cdp, selected.target, "DOM.getDocument", { depth: 0 });
   const requested = await sendToCdpTarget<{ nodeId: number }>(
     cdp,
     selected.target,
@@ -76,5 +81,6 @@ export async function resolvePipelineDocument(
     target: selected.target,
     nodeId: requested.nodeId,
     backendNodeId: described.node.backendNodeId,
+    objectId: evaluated.result.objectId,
   };
 }

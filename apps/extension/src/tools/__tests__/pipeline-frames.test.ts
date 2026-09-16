@@ -12,6 +12,8 @@ function fixture(oopif = false) {
     if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
     if (method === "Runtime.evaluate") return { result: { objectId: "document" } };
     if (method === "DOM.requestNode") return { nodeId: 20 };
+    // DOM.requestNode 前必须启用该 session 的树映射，保护同进程 frame 和 OOPIF。
+    if (method === "DOM.getDocument") return { root: { nodeId: 1, backendNodeId: 100 } };
     if (method === "DOM.describeNode") return { node: { backendNodeId: 200 } };
     throw new Error(method);
   });

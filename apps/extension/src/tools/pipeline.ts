@@ -1,8 +1,8 @@
 import type { CdpTarget } from "@/browser-driver/frame-graph";
 import type { SessionManager } from "@/session-manager/manager";
 import {
-  handleClick,
   handleBlur,
+  handleClick,
   handleFill,
   handleHover,
   handlePress,
@@ -43,6 +43,12 @@ interface Target {
     expected: boolean;
   };
   selection?: {
+    discovery?: {
+      mode: "scroll" | "search";
+      target: string;
+      maxSteps: number;
+      modelFallback?: boolean;
+    };
     selectedSource?: SelectedSource;
     container: string;
     option: string;
@@ -87,6 +93,10 @@ interface Facts {
   selectionOptions?: { label: string; selected: boolean }[] | null;
   selectionOpen?: boolean;
   selectionError?: string;
+  selectionComplete?: boolean;
+  selectionScroll?: { top: number; height: number; viewport: number };
+  selectionQuery?: string;
+  scrollTop?: number;
 }
 // Only this fixed reader is evaluated. User configuration supplies data arguments, never JS.
 export function facts(this: Element, target: Target, point?: { x: number; y: number }): Facts {
@@ -141,6 +151,21 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
     try {
       const selectedValues = config.selectedSource ? readSource(config.selectedSource) : undefined;
       if (selectedValues) selectionFields.selection = selectedValues;
+      // 发现模式中已选集合来自独立完整来源；当前可见选项只代表一个窗口。
+      if (config.discovery) {
+        const targets = document.querySelectorAll(config.discovery.target);
+        if (targets.length > 1) throw new Error("多选发现目标不唯一");
+        const discover = targets[0]!;
+        if (discover && config.discovery.mode === "scroll")
+          selectionFields.selectionScroll = {
+            top: discover.scrollTop,
+            height: discover.scrollHeight,
+            viewport: discover.clientHeight,
+          };
+        else if (discover instanceof HTMLInputElement && discover.type !== "password")
+          selectionFields.selectionQuery = discover.value;
+        else if (discover) throw new Error("多选搜索目标不是可读输入框");
+      }
       const containers = document.querySelectorAll(config.container);
       if (containers.length > 1) throw new Error("多选容器不唯一");
       const container = containers[0];
@@ -152,7 +177,8 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
         getComputedStyle(container).visibility !== "hidden"
       ) {
         const nodes = [...container.querySelectorAll(config.option)];
-        if (!nodes.length || nodes.length > 500) throw new Error("多选选项为空或超过 500 个");
+        if ((!nodes.length && !config.discovery) || nodes.length > 500)
+          throw new Error("多选选项为空或超过 500 个");
         const options = nodes.map((node) => {
           const label = (node.textContent ?? "").trim();
           if (!label || label.length > 1000) throw new Error("选项文字为空或过长");
@@ -161,7 +187,8 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
               container.getAttribute("aria-setsize") ??
               nodes.length,
           );
-          if (total !== nodes.length) throw new Error("选项集合不完整，暂不支持虚拟列表");
+          if (total !== nodes.length && !config.discovery)
+            throw new Error("选项集合不完整，需要搜索或滚动发现策略");
           let selected: boolean;
           if (selectedValues) selected = selectedValues.includes(label);
           else if (config.selectedClass) selected = node.classList.contains(config.selectedClass);
@@ -178,12 +205,17 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
         });
         if (new Set(options.map((o) => o.label)).size !== options.length)
           throw new Error("选项文字不唯一");
-        if (selectedValues?.some((label) => !options.some((o) => o.label === label)))
+        if (
+          !config.discovery &&
+          selectedValues?.some((label) => !options.some((o) => o.label === label))
+        )
           throw new Error("已选值不在完整选项列表中");
         selectionFields = {
+          ...selectionFields,
+          selectionComplete: !config.discovery,
           selectionOpen: true,
           selectionOptions: options,
-          selection: options.filter((o) => o.selected).map((o) => o.label),
+          selection: selectedValues ?? options.filter((o) => o.selected).map((o) => o.label),
         };
       }
     } catch (error) {
@@ -192,6 +224,7 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
   }
   return {
     ...selectionFields,
+    scrollTop: this.scrollTop,
     matches:
       this.ownerDocument === document &&
       Boolean(scoped) &&
@@ -259,11 +292,17 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
     !(
       read
         ? ["capabilities", "page", "read", "prepare_upload"]
-        : ["click", "fill", "select", "press", "hover"]
+        : ["click", "fill", "select", "press", "hover", "scroll"]
     ).includes(r.op)
   )
     return false;
   if (r.op === "capabilities" || r.op === "page") return read;
+  // 固定滚动动作只接受非负绝对位置；不能携带任意脚本或无界滚动表达式。
+  if (
+    r.op === "scroll" &&
+    (typeof r.value !== "number" || !Number.isFinite(r.value) || r.value < 0 || r.value > 1e8)
+  )
+    return false;
   if (r.commit !== undefined && (r.op !== "fill" || r.commit !== "blur")) return false;
   if (
     (r.button !== undefined && !["left", "right"].includes(r.button)) ||
@@ -320,6 +359,18 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
   }
   if (t.selection) {
     const s = t.selection;
+    if (
+      s.discovery &&
+      (!s.selectedSource ||
+        !["scroll", "search"].includes(s.discovery.mode) ||
+        typeof s.discovery.target !== "string" ||
+        !s.discovery.target ||
+        s.discovery.target.length > 2000 ||
+        !Number.isInteger(s.discovery.maxSteps) ||
+        s.discovery.maxSteps < 1 ||
+        s.discovery.maxSteps > 100)
+    )
+      return false;
     if (
       typeof s.container !== "string" ||
       !s.container ||
@@ -399,6 +450,7 @@ export async function handlePipeline(
       phases: true,
       selection: true,
       selectionSources: true,
+      selectionDiscovery: 1,
       recordedActions: 1,
     };
   const ctx = lookupSession(manager, params, "pipeline");
@@ -664,6 +716,22 @@ export async function handlePipeline(
     };
     const actionDeps = { ...deps, cdp: guardedCdp };
     const p = { session_id: params.session_id, tab_id: tid, ref };
+    // 控件内部滚动使用固定实现，经过与原生点击相同的文档/遮挡/取消检查。
+    // 输入派发之前 phase 才切换；回执丢失后调用方先读取 scrollTop 核对，不盲目重放。
+    if (r.op === "scroll") {
+      const scrolled = await dispatch<{ exceptionDetails?: unknown }>(
+        scope.target,
+        "Runtime.callFunctionOn",
+        {
+          objectId: selected.objectId,
+          functionDeclaration: "function(top) { this.scrollTop = top; }",
+          arguments: [{ value: r.value }],
+          returnByValue: true,
+        },
+      );
+      if (scrolled.exceptionDetails) return fail("滚动派发后页面执行异常，需要核对位置");
+      return { ok: true, phase: "input_acknowledged", requestId: r.requestId, ...page };
+    }
     const result =
       r.op === "click"
         ? await handleClick(

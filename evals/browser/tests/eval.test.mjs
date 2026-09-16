@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { Script } from "node:vm";
 
 import { runCommandTask } from "../lib/agent-runner.mjs";
 import { loadCaseManifests, validateCaseManifest } from "../lib/case-loader.mjs";
@@ -56,8 +57,8 @@ test("repository validation links every case to a fixture and valid workflow evi
   assert.deepEqual(validateRepositoryCases(cases, fixtureRegistry), []);
   const summary = repositorySummary(cases, fixtureRegistry);
   assert.equal(summary.cases, 9);
-  assert.equal(summary.fixtureModules, 10);
-  assert.equal(summary.fixtureRoutes, 18);
+  assert.equal(summary.fixtureModules, 11);
+  assert.equal(summary.fixtureRoutes, 22);
 });
 
 test("manifest validation rejects unknown operations and incomplete workflow steps", () => {
@@ -331,4 +332,23 @@ test("CLI validation and seed generation are machine-readable", async () => {
     JSON.parse(generatedSet.stdout).map(({ seed }) => seed),
     [4, 7, 14],
   );
+});
+
+// 服务层验证四个真实路由与内联脚本可加载；这不是已连接扩展的浏览器端到端验收。
+test("pipeline fixtures serve distinct top/frame routes and valid control scripts", async () => {
+  await withServer(async (_server, { baseUrl }) => {
+    for (const path of [
+      "/console/pipeline/history",
+      "/console/pipeline/preview",
+      "/pipeline/history/history/414",
+      "/pipeline/preview",
+    ]) {
+      const response = await fetch(baseUrl + path);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      if (path.startsWith("/console")) assert.match(html, /<iframe/);
+      for (const match of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g))
+        assert.doesNotThrow(() => new Script(match[1]));
+    }
+  });
 });

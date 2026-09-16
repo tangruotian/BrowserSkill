@@ -512,6 +512,13 @@
             },
             "to": {
               "type": "string"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -588,6 +595,13 @@
             "state": {
               "description": "Observation id immediately before this action.",
               "type": "string"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -668,6 +682,13 @@
             },
             "target": {
               "$ref": "#/definitions/TargetDescriptorV3"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -754,6 +775,13 @@
             },
             "target": {
               "$ref": "#/definitions/TargetDescriptorV3"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -834,6 +862,13 @@
             },
             "target": {
               "$ref": "#/definitions/TargetDescriptorV3"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -923,6 +958,13 @@
             "target": {
               "$ref": "#/definitions/TargetDescriptorV3"
             },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "value": {
               "type": "string"
             }
@@ -1011,6 +1053,13 @@
             },
             "target": {
               "$ref": "#/definitions/TargetDescriptorV3"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -1110,6 +1159,13 @@
                   "type": "null"
                 }
               ]
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
@@ -1186,6 +1242,13 @@
             "state": {
               "description": "Observation id immediately before this action.",
               "type": "string"
+            },
+            "topLevelUrl": {
+              "description": "顶层前置页面与交互 frame 的 page_url 分离；可选字段保持历史 v3 兼容。",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         }

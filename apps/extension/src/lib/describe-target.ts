@@ -1,3 +1,4 @@
+import { captureSelection } from "./recording/selection-evidence";
 /**
  * Build a semantic capture descriptor for an interacted element.
  *
@@ -377,6 +378,7 @@ function captureEvidence(el: Element): import("@/transport/types").TargetEvidenc
     });
   }
   return {
+    selection: captureSelection(el),
     selector,
     tag,
     ...(ancestors.length ? { ancestors } : {}),

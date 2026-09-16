@@ -56,6 +56,8 @@ export function buildTraceV3(input: {
   }
   const steps = reduced.steps.map((step) => ({
     ...step,
+    // 在状态重编号前按原 state ID 关联顶层 URL，保持 iframe 交互文档的 pageUrl 原值。
+    topLevelUrl: entries.find((entry) => entry.id === step.state)?.url,
     state: publishedId.get(step.state) ?? step.state,
     result: { state: publishedId.get(step.result.state) ?? step.result.state },
   }));

@@ -814,9 +814,29 @@ export const TRACE_VERSION_V3 = 3;
 export const TRACE_VERSION_V2 = 2;
 export const VOM_FORMAT_VERSION = 1;
 
+/** 结构化控件证据穿过 Trace v3 的 evidence 字段；complete 仅证明已选集合完整。 */
+export interface RecordedSelectionV3 {
+  trigger: string;
+  complete: boolean;
+  selected: string[];
+  config: {
+    container: string;
+    option: string;
+    selectedSource: {
+      kind: "text" | "value" | "tags";
+      selector: string;
+      separator?: string;
+      itemSelector?: string;
+      emptyText?: string;
+    };
+    discovery?: { mode: "scroll" | "search"; target: string; maxSteps: number };
+  };
+}
 export interface TargetEvidenceV3 {
+  selection?: RecordedSelectionV3;
   observedAt?: number;
   after?: {
+    selection?: RecordedSelectionV3;
     status: "observed" | "unavailable";
     observedAt: number;
     url?: string;
@@ -826,6 +846,14 @@ export interface TargetEvidenceV3 {
     checked?: boolean;
     ancestors?: { selector: string; classes: string[]; attributes: Record<string, string> }[];
     reason?: string;
+    /** 明确区分可重试观察与证据歧义；这些状态不授权重放用户动作。 */
+    code?:
+      | "target-detached"
+      | "document-changed"
+      | "frame-navigated"
+      | "ambiguous-target"
+      | "capture-timeout"
+      | "capture-failed";
   };
 
   ancestors?: { selector: string; classes: string[]; attributes: Record<string, string> }[];
@@ -870,6 +898,8 @@ export interface StepCommonV3 {
   capturedAt?: number;
   pageIdentity?: string;
   pageUrl?: string;
+  /** 顶层前置页面来自状态注册表；pageUrl 仍表示实际交互文档，二者不得混用。 */
+  topLevelUrl?: string;
   id: number;
   state: string;
   result: StepResultV3;

@@ -149,3 +149,40 @@ it("reads a value source and handles an explicit empty placeholder", () => {
     }).selection,
   ).toEqual([]);
 });
+
+// 虚拟窗口之外的已选服务必须保留，不能把当前窗口当作完整集合。
+it("reads a virtual window with an independent complete selected source", () => {
+  document.querySelector("#dropdown")!.textContent = "auth,offscreen";
+  document.querySelector(".option")!.setAttribute("aria-setsize", "30");
+  const t = {
+    selector: "#dropdown",
+    identity: [],
+    selection: {
+      container: "#options",
+      option: ".option",
+      selectedSource: { kind: "text" as const, selector: "#dropdown" },
+      discovery: { mode: "scroll" as const, target: "#options", maxSteps: 20 },
+    },
+  };
+  const result = facts.call(document.querySelector("#dropdown")!, t);
+  expect(result.selectionError).toBeUndefined();
+  expect(result.selection).toEqual(["auth", "offscreen"]);
+  expect(result.selectionComplete).toBe(false);
+});
+it("allows an empty search result without losing the full selected set", () => {
+  document.querySelector("#dropdown")!.textContent = "auth";
+  document.querySelector("#options")!.innerHTML = '<input id="query" value="missing">';
+  const result = facts.call(document.querySelector("#dropdown")!, {
+    selector: "#dropdown",
+    identity: [],
+    selection: {
+      container: "#options",
+      option: ".option",
+      selectedSource: { kind: "text", selector: "#dropdown" },
+      discovery: { mode: "search", target: "#query", maxSteps: 10 },
+    },
+  });
+  expect(result.selectionError).toBeUndefined();
+  expect(result.selectionOptions).toEqual([]);
+  expect(result.selection).toEqual(["auth"]);
+});
