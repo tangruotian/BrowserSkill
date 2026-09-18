@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { CdpRunner, ChromeTabsApi } from "@/tools/shared";
 import type { RecordingObservationSession } from "../recording/observation-session";
-import { captureAfter, localAfter } from "../recording/post-evidence";
+import { captureAfter, localAfter, postEvidenceSource } from "../recording/post-evidence";
 import { captureSelection } from "../recording/selection-evidence";
 import { SettleController } from "../recording/settle-controller";
 import type { TargetedRecordingDraft } from "../recording/types";
@@ -101,4 +101,14 @@ it("采集真实搜索目标及独立完整已选集合，拒绝省略文字", (
   expect(document.querySelector(evidence!.config.discovery!.target)?.id).toBe("search");
   document.querySelector("#selected")!.textContent = "auth +2";
   expect(captureSelection(document.querySelector("#services")!)).toBeUndefined();
+});
+
+// 必须执行完整的 CDP 序列化源，直接调用 localAfter 会掩盖 import 闭包在浏览器侧丢失。
+it("后置采集序列化函数在无模块闭包时仍能调用集合读取器", () => {
+  document.body.innerHTML = '<button id="recorded">更新后的文字</button>';
+  const read = new Function("return (" + postEvidenceSource() + ")")();
+  expect(read.call(document, "#recorded", "旧文字")).toMatchObject({
+    status: "observed",
+    text: "更新后的文字",
+  });
 });

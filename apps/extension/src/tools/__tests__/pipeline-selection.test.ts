@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { facts } from "../pipeline";
+import { facts, pipelineFactsSource } from "../pipeline";
 
 beforeEach(() => {
   document.body.innerHTML =
@@ -185,4 +185,77 @@ it("allows an empty search result without losing the full selected set", () => {
   expect(result.selectionError).toBeUndefined();
   expect(result.selectionOptions).toEqual([]);
   expect(result.selection).toEqual(["auth"]);
+});
+
+// 与 CDP 一样在没有模块闭包的函数中执行，覆盖生产压缩改名后遗漏 import 的故障。
+const probeTarget = () => ({
+  selector: "#service",
+  identity: [],
+  selectionProbe: {
+    adapter: "bk-select" as const,
+    container: ".bk-select-dropdown-content",
+    option: "li.bk-option",
+  },
+});
+function probeDOM(open = true) {
+  document.body.innerHTML =
+    '<div id="service" class="bk-select"><span class="bk-select-name">auth,offscreen</span></div>' +
+    (open
+      ? '<div class="bk-select-dropdown-content"><input id="search"><ul><li class="bk-option">auth</li><li class="bk-option">env</li></ul></div>'
+      : "");
+  return document.querySelector("#service")!;
+}
+it("运行时从真实控件读取集合及搜索能力，CDP 序列化函数不依赖模块闭包", () => {
+  const node = probeDOM();
+  const serialized = new Function("return (" + pipelineFactsSource() + ")")();
+  const result = serialized.call(node, probeTarget());
+  expect(result.selectionError).toBeUndefined();
+  expect(result.selection).toEqual(["auth", "offscreen"]);
+  expect(result.selectionOptions.map((o: { label: string }) => o.label)).toEqual(["auth", "env"]);
+  expect(result.selectionConfig.discovery).toMatchObject({
+    mode: "search",
+    target: 'input[id="search"]',
+    modelFallback: true,
+  });
+});
+it("运行时探测支持关闭弹层和搜索无结果，不把未知状态冒充空集合", () => {
+  const node = probeDOM(false);
+  expect(facts.call(node, probeTarget())).toMatchObject({
+    selection: ["auth", "offscreen"],
+    selectionOpen: false,
+  });
+  probeDOM();
+  document.querySelectorAll("li").forEach((n) => n.remove());
+  const result = facts.call(document.querySelector("#service")!, probeTarget());
+  expect(result.selectionError).toBeUndefined();
+  expect(result.selectionOptions).toEqual([]);
+  document.querySelector(".bk-select-name")!.textContent = "auth,+2";
+  expect(facts.call(document.querySelector("#service")!, probeTarget()).selectionError).toContain(
+    "完整已选集合",
+  );
+});
+it("多个可见弹层或缺少完整标签来源时不派生集合配置", () => {
+  const node = probeDOM();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    '<div class="bk-select-dropdown-content"><li class="bk-option">other</li></div>',
+  );
+  expect(facts.call(node, probeTarget()).selectionConfig).toBeUndefined();
+  expect(facts.call(node, probeTarget()).selectionError).toBeDefined();
+});
+
+it("展开派发前读数失效时，不能把未知误认为关闭而继续点击", () => {
+  const node = probeDOM(false);
+  document.querySelector(".bk-select-name")!.remove();
+  const result = facts.call(node, { ...probeTarget(), selectionOpenExpected: false });
+  expect(result.selectionError).toBeDefined();
+  expect(result.matches).toBe(false);
+});
+it("不把另一展开控件的面板当作当前控件", () => {
+  const node = probeDOM();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    '<div class="bk-select is-focus"><span class="bk-select-name">other</span></div>',
+  );
+  expect(facts.call(node, probeTarget()).selectionError).toBeDefined();
 });

@@ -1,4 +1,5 @@
 import type { CdpTarget } from "@/browser-driver/frame-graph";
+import { captureSelection } from "@/lib/recording/selection-evidence";
 import type { SessionManager } from "@/session-manager/manager";
 import {
   handleBlur,
@@ -42,6 +43,8 @@ interface Target {
     selectedClass?: string;
     expected: boolean;
   };
+  /** 固定适配器只补充当前 DOM 状态来源，不接收模型代码或任意页面探测。 */
+  selectionProbe?: { adapter: "bk-select"; container: string; option: string };
   selection?: {
     discovery?: {
       mode: "scroll" | "search";
@@ -96,10 +99,16 @@ interface Facts {
   selectionComplete?: boolean;
   selectionScroll?: { top: number; height: number; viewport: number };
   selectionQuery?: string;
+  selectionConfig?: Target["selection"];
   scrollTop?: number;
 }
 // Only this fixed reader is evaluated. User configuration supplies data arguments, never JS.
-export function facts(this: Element, target: Target, point?: { x: number; y: number }): Facts {
+export function facts(
+  this: Element,
+  target: Target,
+  point?: { x: number; y: number },
+  readSelection: typeof captureSelection = captureSelection,
+): Facts {
   const scopes = target.within ? document.querySelectorAll(target.within) : null;
   const scoped = !scopes || (scopes.length === 1 && scopes[0]?.contains(this));
   const input = this as HTMLInputElement;
@@ -145,10 +154,21 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
     return items;
   };
   let selectionFields: Partial<Facts> = {};
-  if (target.selection) {
-    const config = target.selection;
+  if (target.selection || target.selectionProbe) {
     selectionFields = { selection: null, selectionOptions: null, selectionOpen: false };
     try {
+      // 适配器读取在已解析且唯一的目标文档内进行；不执行点击，也不把缺失读数当成空集合。
+      const captured = target.selectionProbe
+        ? readSelection(this, target.selectionProbe)
+        : undefined;
+      const config: Target["selection"] = target.selection ?? captured?.config;
+      if (!config || (target.selectionProbe && !captured?.complete))
+        throw new Error("当前控件无法读取完整已选集合；尚未改变选择，请检查控件结构");
+      if (target.selectionProbe) {
+        // fallback 只能挑选程序已观察到的搜索/滚动动作，且仍受 Runner 的次数和总时限控制。
+        if (config.discovery) config.discovery.modelFallback = true;
+        selectionFields.selectionConfig = config;
+      }
       const selectedValues = config.selectedSource ? readSource(config.selectedSource) : undefined;
       if (selectedValues) selectionFields.selection = selectedValues;
       // 发现模式中已选集合来自独立完整来源；当前可见选项只代表一个窗口。
@@ -229,7 +249,8 @@ export function facts(this: Element, target: Target, point?: { x: number; y: num
       this.ownerDocument === document &&
       Boolean(scoped) &&
       (target.selectionOpenExpected === undefined ||
-        selectionFields.selectionOpen === target.selectionOpenExpected) &&
+        (!selectionFields.selectionError &&
+          selectionFields.selectionOpen === target.selectionOpenExpected)) &&
       (!target.selectionGuard ||
         (() => {
           const guard = target.selectionGuard;
@@ -327,7 +348,7 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
   if (t.role && typeof t.name !== "string") return false;
   if (
     t.selectionOpenExpected !== undefined &&
-    (typeof t.selectionOpenExpected !== "boolean" || !t.selection)
+    (typeof t.selectionOpenExpected !== "boolean" || (!t.selection && !t.selectionProbe))
   )
     return false;
   const validSource = (s: SelectedSource | undefined) =>
@@ -357,6 +378,16 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
     )
       return false;
   }
+  if (
+    t.selectionProbe &&
+    (t.selection ||
+      !t.selector ||
+      t.selectionProbe.adapter !== "bk-select" ||
+      [t.selectionProbe.container, t.selectionProbe.option].some(
+        (v) => typeof v !== "string" || !v || v.length > 2000,
+      ))
+  )
+    return false;
   if (t.selection) {
     const s = t.selection;
     if (
@@ -451,6 +482,7 @@ export async function handlePipeline(
       selection: true,
       selectionSources: true,
       selectionDiscovery: 1,
+      selectionProbe: 1,
       recordedActions: 1,
     };
   const ctx = lookupSession(manager, params, "pipeline");
@@ -563,7 +595,7 @@ export async function handlePipeline(
         "Runtime.callFunctionOn",
         {
           objectId,
-          functionDeclaration: facts.toString(),
+          functionDeclaration: pipelineFactsSource(),
           arguments: [{ value: target }, ...(point ? [{ value: point }] : [])],
           returnByValue: true,
         },
@@ -765,4 +797,12 @@ export async function handlePipeline(
         objectGroup: group,
       }).catch(() => {});
   }
+}
+
+/**
+ * CDP 不共享模块闭包。把两个固定函数作为显式参数注入，避免生产构建压缩/改名后
+ * facts.toString() 引用不存在的 import；target 始终通过 CDP arguments 传入。
+ */
+export function pipelineFactsSource(): string {
+  return `function(target, point) { return (${facts.toString()}).call(this, target, point, (${captureSelection.toString()})); }`;
 }

@@ -5,7 +5,11 @@ import { captureSelection } from "./selection-evidence";
 import type { TargetedRecordingDraft } from "./types";
 
 // Runs in the target document; all selectors and expected text are data.
-export function localAfter(this: Element, expected?: string) {
+export function localAfter(
+  this: Element,
+  expected?: string,
+  readSelection: typeof captureSelection = captureSelection,
+) {
   const text = (this.textContent ?? "").trim();
   if (expected !== undefined && text !== expected) return null;
   const ancestors: { selector: string; classes: string[]; attributes: Record<string, string> }[] =
@@ -35,7 +39,7 @@ export function localAfter(this: Element, expected?: string) {
   }
   const input = this as HTMLInputElement;
   return {
-    selection: captureSelection(this),
+    selection: readSelection(this),
     status: "observed" as const,
     observedAt: Date.now(),
     url: location.href,
@@ -79,12 +83,7 @@ export async function captureAfter(
           objectGroup: group,
         });
     if (!resolved.object.objectId) throw new Error("Post-action document missing");
-    const reader =
-      "function(selector, expected) { const captureSelection = " +
-      captureSelection.toString() +
-      "; const read = " +
-      localAfter.toString() +
-      "; const fail=code=>({status:'unavailable',observedAt:Date.now(),code,reason:code,url:this.URL}); if(this.defaultView?.document!==this)return fail('document-changed'); const nodes=[...this.querySelectorAll(selector)]; if(nodes.length>100)return fail('ambiguous-target'); const matches=nodes.length===1?nodes:nodes.filter(n=>expected!==undefined && (n.textContent??'').trim()===expected); if(matches.length!==1)return fail(matches.length?'ambiguous-target':'target-detached'); return read.call(matches[0]); }";
+    const reader = postEvidenceSource();
     const result = await send<{
       result?: { value?: NonNullable<TargetEvidenceV3["after"]> };
       exceptionDetails?: unknown;
@@ -173,4 +172,15 @@ export async function captureAfter(
     draft.captureTarget.evidence = { ...draft.captureTarget.evidence, after };
   if (draft.matchedTarget)
     draft.matchedTarget.evidence = { ...draft.matchedTarget.evidence, after };
+}
+
+/** CDP 的独立执行上下文没有模块 import；显式传入读取器以兼容生产压缩和函数改名。 */
+export function postEvidenceSource(): string {
+  return (
+    "function(selector, expected) { const captureSelection = " +
+    captureSelection.toString() +
+    "; const read = " +
+    localAfter.toString() +
+    "; const fail=code=>({status:'unavailable',observedAt:Date.now(),code,reason:code,url:this.URL}); if(this.defaultView?.document!==this)return fail('document-changed'); const nodes=[...this.querySelectorAll(selector)]; if(nodes.length>100)return fail('ambiguous-target'); const matches=nodes.length===1?nodes:nodes.filter(n=>expected!==undefined && (n.textContent??'').trim()===expected); if(matches.length!==1)return fail(matches.length?'ambiguous-target':'target-detached'); return read.call(matches[0], undefined, captureSelection); }"
+  );
 }
