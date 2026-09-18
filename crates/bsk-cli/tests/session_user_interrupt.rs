@@ -295,20 +295,26 @@ async fn session_user_interrupt_event_cancels_inflight_with_user_aborted() {
 /// catch a tool dispatched arbitrarily later.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_interrupt_rejects_next_mutating_tool_call_when_session_was_idle() {
-    assert_idle_interrupt_rejects(Method::ToolClick).await;
+    assert_idle_interrupt_rejects(Method::ToolClick, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_interrupt_rejects_scroll_to_before_forwarding() {
-    assert_idle_interrupt_rejects(Method::ToolScrollTo).await;
+    assert_idle_interrupt_rejects(Method::ToolScrollTo, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_interrupt_rejects_wheel_before_forwarding() {
-    assert_idle_interrupt_rejects(Method::ToolWheel).await;
+    assert_idle_interrupt_rejects(Method::ToolWheel, false).await;
 }
 
-async fn assert_idle_interrupt_rejects(method: Method) {
+/// 新命令按快照确认旧停止后，再次停止必须仍由 daemon 在转发前拦下。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_acknowledgement_does_not_clear_a_new_interrupt() {
+    assert_idle_interrupt_rejects(Method::ToolClick, true).await;
+}
+
+async fn assert_idle_interrupt_rejects(method: Method, acknowledge_first: bool) {
     let (handle, sock) = spawn_daemon().await;
     let mut ws = connect_ext(handle.ws_addr()).await;
     let _ = handshake_as_ext(&mut ws).await;
@@ -396,6 +402,67 @@ async fn assert_idle_interrupt_rejects(method: Method) {
     let state = handle.state();
     wait_for_session_interrupt_pending(&state, &start.session_id).await;
 
+    if acknowledge_first {
+        let sid = bsk::daemon::sessions::SessionId(start.session_id.clone());
+        let snapshot = ipc
+            .call::<_, serde_json::Value>(
+                "interrupt-state",
+                Method::SessionInterrupt,
+                Some(json!({ "session_id": start.session_id })),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            state.session_interrupts.is_pending(&sid),
+            "只读快照不消费停止"
+        );
+        let old = snapshot["token"].as_str().unwrap();
+        let ack = ipc
+            .call::<_, serde_json::Value>(
+                "interrupt-ack",
+                Method::SessionInterrupt,
+                Some(json!({ "session_id": start.session_id, "acknowledge": old })),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ack["acknowledged"], true);
+        assert!(!state.session_interrupts.is_pending(&sid));
+        // 控制面确认不向浏览器发送工具，不销毁原会话。
+        assert!(state.sessions.get(&sid).is_some());
+        state.session_interrupts.mark(&sid);
+        let new = state.session_interrupts.pending_token(&sid).unwrap();
+        let stale = ipc
+            .call::<_, serde_json::Value>(
+                "stale-ack",
+                Method::SessionInterrupt,
+                Some(json!({ "session_id": start.session_id, "acknowledge": old })),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(stale.code, ErrorCode::UserAborted);
+        assert_eq!(
+            state.session_interrupts.pending_token(&sid).as_deref(),
+            Some(new.as_str())
+        );
+        let unknown = ipc
+            .call::<_, serde_json::Value>(
+                "unknown-session-ack",
+                Method::SessionInterrupt,
+                Some(json!({ "session_id": "missing", "acknowledge": "none" })),
+                Duration::from_secs(3),
+            )
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(unknown.code, ErrorCode::NotFound);
+    }
+
     // The CLI now issues a browser-input (mutating). The daemon must
     // reject it WITHOUT forwarding to the extension.
     let outcome = ipc
@@ -417,6 +484,8 @@ async fn assert_idle_interrupt_rejects(method: Method) {
         "rejected tool dispatch must surface UserAborted (got {:?})",
         err
     );
+
+    assert_eq!(err.data.as_ref().unwrap()["phase"], "not_started");
 
     // Crucially: the extension never saw a browser-input frame.
     assert_eq!(

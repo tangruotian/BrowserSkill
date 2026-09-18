@@ -46,6 +46,17 @@ pub enum SessionSub {
     Stop(SessionStopArgs),
     /// List active sessions.
     List,
+    /// Read a pending stop, or acknowledge the observed token for a new user request.
+    Interrupt(SessionInterruptArgs),
+}
+
+/// 确认只接受先前读取的 token；`none` 表示先前无中断，也必须通过 daemon 的比较检查。
+#[derive(Debug, Clone, Args, Serialize)]
+pub struct SessionInterruptArgs {
+    pub session_id: String,
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledge: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -175,6 +186,7 @@ pub fn dispatch(cmd: SessionCmd, format: Format) -> Result<(), CliError> {
         }
         SessionSub::Stop(args) => run_stop(info.sock_path, args, format),
         SessionSub::List => run_list(info.sock_path, format),
+        SessionSub::Interrupt(args) => run_interrupt(info.sock_path, args, format),
     }
 }
 
@@ -496,6 +508,28 @@ fn run_stop(sock: PathBuf, args: SessionStopArgs, format: Format) -> Result<(), 
     Ok(())
 }
 
+/// 控制面命令不创建/销毁会话、不改变页签；保留结构化响应供 Agent 校验兼容性。
+fn run_interrupt(
+    sock: PathBuf,
+    args: SessionInterruptArgs,
+    format: Format,
+) -> Result<(), CliError> {
+    let reply: serde_json::Value = call(
+        sock,
+        Method::SessionInterrupt,
+        Some(args),
+        Duration::from_secs(5),
+    )?;
+    match format {
+        Format::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&reply).map_err(|e| CliError::Local(e.into()))?
+        ),
+        Format::Human => println!("{reply}"),
+    }
+    Ok(())
+}
+
 fn run_list(sock: PathBuf, format: Format) -> Result<(), CliError> {
     let reply: ListReply = call::<(), _>(sock, Method::SessionList, None, Duration::from_secs(5))?;
     match format {
@@ -736,5 +770,35 @@ mod i3_tests {
         assert!(!stderr.contains("matches multiple online browsers"));
         assert!(stderr.contains("hint:"));
         assert!(stderr.contains("details: requested browser is not connected"));
+    }
+}
+
+#[cfg(test)]
+mod interrupt_cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    /// CLI 必须传递确切 token；省略确认参数表示只读，不能隐式消费标记。
+    #[test]
+    fn interrupt_command_distinguishes_snapshot_and_acknowledgement() {
+        #[derive(Parser)]
+        struct Root {
+            #[command(flatten)]
+            session: SessionCmd,
+        }
+        let read = Root::try_parse_from(["bsk", "interrupt", "s1"]).unwrap();
+        let SessionSub::Interrupt(read) = read.session.sub else {
+            panic!("wrong command")
+        };
+        assert_eq!(read.acknowledge, None);
+        let ack = Root::try_parse_from(["bsk", "interrupt", "s1", "--acknowledge", "stop-token"])
+            .unwrap();
+        let SessionSub::Interrupt(ack) = ack.session.sub else {
+            panic!("wrong command")
+        };
+        assert_eq!(
+            serde_json::to_value(ack).unwrap(),
+            serde_json::json!({ "session_id": "s1", "acknowledge": "stop-token" })
+        );
     }
 }

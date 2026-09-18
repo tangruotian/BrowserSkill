@@ -39,6 +39,9 @@ pub enum Method {
     SessionStopAll,
     #[serde(rename = "session.list")]
     SessionList,
+    /// 读取/按标识确认旧中断；仅 daemon 控制面处理，不向扩展派发浏览器动作。
+    #[serde(rename = "session.interrupt")]
+    SessionInterrupt,
 
     #[serde(rename = "browser.list")]
     BrowserList,
@@ -231,6 +234,7 @@ impl Method {
             | Method::SessionStop
             | Method::SessionStopAll
             | Method::SessionList
+            | Method::SessionInterrupt
             | Method::ToolSessionStart
             | Method::ToolSessionStop => MethodEffect::ControlPlane,
 
@@ -275,6 +279,18 @@ mod tests {
         let method: Method = serde_json::from_value(json!("cancel")).unwrap();
         assert_eq!(method, Method::Cancel);
         assert_eq!(serde_json::to_value(method).unwrap(), json!("cancel"));
+    }
+
+    /// 新接口必须保持控制面分类；中断存在时仍可读取/确认，不能被自身的门禁消费。
+    #[test]
+    fn interrupt_control_round_trips_without_browser_input() {
+        let method: Method = serde_json::from_value(json!("session.interrupt")).unwrap();
+        assert_eq!(method.effect(), MethodEffect::ControlPlane);
+        assert!(!method.requires_interrupt_gate());
+        assert_eq!(
+            serde_json::to_value(method).unwrap(),
+            json!("session.interrupt")
+        );
     }
 
     #[test]

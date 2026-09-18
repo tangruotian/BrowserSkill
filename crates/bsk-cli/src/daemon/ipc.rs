@@ -249,6 +249,7 @@ pub fn full_handler(status: DaemonStatus, state: Arc<DaemonState>) -> RpcHandler
                     Err(e) => ResponseBody::Err(e),
                 },
                 Method::SessionList => handle_session_list(&state),
+                Method::SessionInterrupt => handle_session_interrupt(&state, params),
                 Method::BrowserList => match handle_browser_list(&state, params).await {
                     Ok(v) => ResponseBody::Ok(v),
                     Err(e) => ResponseBody::Err(e),
@@ -368,7 +369,8 @@ async fn handle_tool_dispatch(
         return ResponseBody::Err(RpcError {
             code: ErrorCode::UserAborted,
             message: "tool dispatch rejected: pending user interrupt. The user explicitly requested to stop. Ask the user how to proceed before issuing further actions.".into(),
-            data: None,
+            // 只有此处可证明尚未进入派发队列；在途取消不能标成 not_started。
+            data: Some(serde_json::json!({ "phase": "not_started", "reason": "pending_user_interrupt" })),
         });
     }
     let timeout = match tool_dispatch_transport_timeout(&method, &params) {
@@ -1238,6 +1240,54 @@ async fn handle_session_stop_all(
         return_failures,
     };
     Ok(serde_json::to_value(result).unwrap_or(Value::Null))
+}
+
+/// 同一会话的旧停止只能由新执行指令携带观察标识确认。这个入口没有浏览器副作用；
+/// 不经过工具队列，不消费后续新中断，也不采用时间到期或自动重试绕过用户停止。
+fn handle_session_interrupt(state: &Arc<DaemonState>, params: Value) -> ResponseBody {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Params {
+        session_id: String,
+        acknowledge: Option<String>,
+    }
+    let params: Params = match serde_json::from_value(params) {
+        Ok(params) => params,
+        Err(err) => return ResponseBody::Err(invalid_params(&err.to_string())),
+    };
+    let sid = SessionId(params.session_id);
+    if state.sessions.get(&sid).is_none() {
+        return ResponseBody::Err(RpcError {
+            code: ErrorCode::NotFound,
+            message: "session not registered or already stopped".into(),
+            data: None,
+        });
+    }
+    if let Some(ref token) = params.acknowledge {
+        let expected = if token == "none" {
+            None
+        } else {
+            Some(token.as_str())
+        };
+        if !state.session_interrupts.acknowledge(&sid, expected) {
+            return ResponseBody::Err(RpcError {
+                code: ErrorCode::UserAborted,
+                message: "a new user interrupt arrived while preparing this run".into(),
+                data: Some(
+                    serde_json::json!({ "phase": "not_started", "reason": "new_user_interrupt" }),
+                ),
+            });
+        }
+    }
+    // acknowledged 是这次确认的回执；token 是随后观察到的现态，若此时又有新中断，
+    // 它会留给下一次工具派发拦截，调用方不能拿返回 token 再次循环确认。
+    let token = state.session_interrupts.pending_token(&sid);
+    ResponseBody::Ok(serde_json::json!({
+        "session_id": sid.0,
+        "pending": token.is_some(),
+        "token": token,
+        "acknowledged": params.acknowledge.is_some(),
+    }))
 }
 
 fn handle_session_list(state: &Arc<DaemonState>) -> ResponseBody {
