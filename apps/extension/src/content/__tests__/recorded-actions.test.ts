@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { startRecordCapture, type RecordCaptureController } from "../record-capture";
 import type { RecordStepPayload } from "@/lib/record-bridge";
 import { localAfter } from "@/lib/recording/post-evidence";
+import { type RecordCaptureController, startRecordCapture } from "../record-capture";
 
 let capture: RecordCaptureController | undefined;
 beforeEach(() => {

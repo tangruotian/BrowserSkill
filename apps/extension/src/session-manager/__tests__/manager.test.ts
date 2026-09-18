@@ -25,6 +25,26 @@ function fakeAgentWindow(): AgentWindowApi & {
 }
 
 describe("SessionManager", () => {
+  // 保护新增远程连接与本地固定页签模式的交界：拒绝前不得读取或创建用户页签。
+  it("rejects remote current-tab attachment before touching user tabs", async () => {
+    const aw = fakeAgentWindow();
+    const getLastFocusedActiveTab = vi.fn(async () => ({
+      tabId: 7,
+      windowId: 8,
+      url: "https://example.com",
+    }));
+    const sm = new SessionManager({
+      remote: () => true,
+      agentWindow: aw,
+      currentTab: { getLastFocusedActiveTab },
+    });
+    await expect(sm.start("remote", { mode: "current_tab" })).rejects.toThrow(
+      /remote sessions cannot attach/,
+    );
+    expect(getLastFocusedActiveTab).not.toHaveBeenCalled();
+    expect(aw.createMock).not.toHaveBeenCalled();
+    expect(sm.list()).toEqual([]);
+  });
   it("creates an Agent Window when starting a session", async () => {
     const aw = fakeAgentWindow();
     const sm = new SessionManager({ agentWindow: aw, now: () => 1700000000000 });

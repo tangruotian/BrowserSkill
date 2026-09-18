@@ -53,7 +53,7 @@ pub async fn send_handshake(
     let params = HandshakeParams {
         client: "browser-skill-extension".into(),
         version: "0.1.0-dev.0".parse().unwrap(),
-        protocol_version: "1.1".into(),
+        protocol_version: bsk::daemon::state::PROTOCOL_VERSION.into(),
         instance_id: instance_id.into(),
         browser: BrowserPeerInfo {
             name: "chrome".into(),

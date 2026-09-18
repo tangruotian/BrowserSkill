@@ -13,6 +13,8 @@ import { RefStore } from "./ref-store";
 export type SessionMode = "agent_window" | "current_tab";
 
 export interface SessionContext {
+  /** Remote connections retain dedicated windows, with explicit page ownership. */
+  remote?: boolean;
   sessionId: string;
   mode: SessionMode;
   /** Controlled window id. Kept under the legacy name for existing Agent Window tools. */
@@ -50,6 +52,7 @@ export interface BorrowReservation {
 }
 
 export interface SessionManagerOptions {
+  remote?: () => boolean;
   agentWindow?: AgentWindowApi;
   currentTab?: CurrentTabApi;
   now?: () => number;
@@ -110,16 +113,19 @@ function throwIfSessionStartAborted(signal: AbortSignal | undefined): void {
  * so vitest never touches a real `chrome.windows` object.
  */
 export class SessionManager {
+  private readonly remote: () => boolean;
   private readonly sessions = new Map<string, SessionContext>();
   /** Contains Agent Windows only; attached user windows must never be treated as isolated. */
   private readonly windowIndex = new Map<number, string>();
   private readonly attachedTabIndex = new Map<number, string>();
   private readonly borrowReservations = new Map<number, string>();
+  private readonly expectedWindowClosures = new WeakSet<SessionContext>();
   private readonly agentWindow: AgentWindowApi;
   private readonly currentTab: CurrentTabApi;
   private readonly now: () => number;
 
   constructor(options: SessionManagerOptions = {}) {
+    this.remote = options.remote ?? (() => false);
     this.agentWindow = options.agentWindow ?? chromeAgentWindowApi;
     this.currentTab = options.currentTab ?? chromeCurrentTabApi;
     this.now = options.now ?? Date.now;
@@ -131,6 +137,21 @@ export class SessionManager {
 
   get(sessionId: string): SessionContext | null {
     return this.sessions.get(sessionId) ?? null;
+  }
+
+  isWindowCloseExpected(ctx: SessionContext): boolean {
+    return this.expectedWindowClosures.has(ctx);
+  }
+
+  /** Mark only the committed window/tab removal stage of session.stop. */
+  async withExpectedWindowClose<T>(ctx: SessionContext, close: () => Promise<T>): Promise<T> {
+    this.expectedWindowClosures.add(ctx);
+    try {
+      return await close();
+    } finally {
+      // Failed teardown must not hide a later user-initiated close.
+      this.expectedWindowClosures.delete(ctx);
+    }
   }
 
   findByWindowId(windowId: number): SessionContext | null {
@@ -183,6 +204,9 @@ export class SessionManager {
     ctx.refStore.clear();
     return previousTabId;
   }
+  invalidateTabRefs(tabId: number): void {
+    for (const ctx of this.sessions.values()) ctx.refStore.invalidateTab(tabId);
+  }
 
   /**
    * Forget a tab Chrome has removed, including any uncommitted borrow.
@@ -191,6 +215,7 @@ export class SessionManager {
    */
   forgetClosedTab(tabId: number, { isWindowClosing = false } = {}): void {
     this.borrowReservations.delete(tabId);
+    this.invalidateTabRefs(tabId);
     for (const ctx of this.sessions.values()) {
       ctx.agentCreatedTabs.delete(tabId);
       if (!isWindowClosing) ctx.borrowedTabs.delete(tabId);
@@ -225,7 +250,8 @@ export class SessionManager {
    * write after `chrome.tabs.move`.
    */
   tryReserveBorrow(tabId: number, sessionId: string): BorrowReservation | { borrowedBy: string } {
-    const borrowedBy = this.findBorrowingSession(tabId, sessionId);
+    const borrowedBy =
+      this.borrowReservations.get(tabId) ?? this.findBorrowingSession(tabId, sessionId);
     if (borrowedBy) return { borrowedBy };
     this.borrowReservations.set(tabId, sessionId);
     let closed = false;
@@ -266,6 +292,11 @@ export class SessionManager {
       throw new Error(`[bh] session ${sessionId} already exists`);
     }
     throwIfSessionStartAborted(opts.signal);
+
+    // 远程任务必须经独立窗口和显式借用授权，不能用本地快捷模式接管当前用户页签。
+    if (opts.mode === "current_tab" && this.remote()) {
+      throw new Error("[bh] remote sessions cannot attach the current user tab; use tab_borrow");
+    }
 
     if (opts.mode === "current_tab") {
       const originalTarget = await this.currentTab.getLastFocusedActiveTab();
@@ -328,6 +359,7 @@ export class SessionManager {
       throwIfSessionStartAborted(opts.signal);
 
       const ctx: SessionContext = {
+        ...(this.remote() ? { remote: true } : {}),
         sessionId,
         mode: "agent_window",
         agentWindowId: windowId,

@@ -9,7 +9,11 @@
 import type { CdpDebuggee, DialogCursor } from "@/browser-driver/chromium-cdp";
 import type { CdpFrameGraph, CdpTarget } from "@/browser-driver/frame-graph";
 import { cdpBlockedUrlReason } from "@/session-manager/agent-window";
-import type { SessionContext, SessionManager } from "@/session-manager/manager";
+import {
+  isAgentControlledTab,
+  type SessionContext,
+  type SessionManager,
+} from "@/session-manager/manager";
 import { normaliseRef } from "@/session-manager/ref-store";
 import type { ConsoleResult, JavaScriptDialogInfo, RpcError } from "@/transport/types";
 import { rpcError } from "./errors";
@@ -175,7 +179,24 @@ export function lookupSession(
  * Returns the resolved `{tabId, windowId, active}` triple, or an
  * `RpcError` the caller propagates verbatim.
  */
+/** 同时限制远程授权和本地固定页签范围；读取也不能绕过远程授权。 */
 export async function resolveTargetTab(
+  manager: SessionManager,
+  ctx: SessionContext,
+  tabId: number | undefined,
+  api: ChromeTabsApi,
+): Promise<ResolvedTargetTab | RpcError> {
+  const target = await resolveVisibleTargetTab(manager, ctx, tabId, api);
+  if (!isRpcError(target) && ctx.remote && !isAgentControlledTab(ctx, target.tabId)) {
+    return {
+      code: "permission_denied",
+      message: "Authorize this tab with tab_borrow before reading or operating it",
+    };
+  }
+  return target;
+}
+
+async function resolveVisibleTargetTab(
   manager: SessionManager,
   ctx: SessionContext,
   tabId: number | undefined,
@@ -339,6 +360,7 @@ export async function resolveCdpAccessibleTargetTab(
 
   const tabs = await api.query({ windowId: ctx.agentWindowId });
   for (const tab of tabs) {
+    if (ctx.remote && (tab.id === undefined || !isAgentControlledTab(ctx, tab.id))) continue;
     const candidate = resolvedTargetFromChromeTab(tab, ctx.agentWindowId);
     if (!candidate) continue;
     if (!enforceCdpAccessibleTarget(candidate, toolName)) return candidate;
@@ -367,6 +389,12 @@ export function enforceAgentWindow(
       `${toolName} can only act on the tab fixed when this session started`,
     );
   }
+  if (ctx.remote && !isAgentControlledTab(ctx, target.tabId)) {
+    return {
+      code: "permission_denied",
+      message: "This tab has not been authorized for the remote task",
+    };
+  }
   if (target.windowId !== ctx.agentWindowId) {
     return rpcError(
       "permission_denied",
@@ -387,6 +415,6 @@ export function enforceToolTargetScope(
   effect: ToolEffect,
   toolName: string,
 ): RpcError | null {
-  if (effect === "passive_read") return null;
+  if (effect === "passive_read" && !ctx.remote) return null;
   return enforceAgentWindow(ctx, target, toolName);
 }

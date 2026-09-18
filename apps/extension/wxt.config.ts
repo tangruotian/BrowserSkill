@@ -38,10 +38,12 @@ export default defineConfig({
     ...(UPDATE_URL ? { update_url: UPDATE_URL } : {}),
     permissions: [
       "alarms",
+      "activeTab",
       "debugger",
       "downloads",
       "idle",
       "notifications",
+      "scripting",
       "tabs",
       "storage",
       "webNavigation",

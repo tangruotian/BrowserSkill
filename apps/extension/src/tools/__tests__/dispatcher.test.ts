@@ -90,6 +90,30 @@ describe("ToolDispatcher", () => {
     dispatcher.stop();
   });
 
+  it.each([
+    "tool.upload",
+    "tool.download",
+  ])("rejects %s for remote sessions before file handling", async (method) => {
+    const { transport, sent, deliver } = fakeTransport();
+    const sessions = new SessionManager({
+      remote: () => true,
+      agentWindow: {
+        create: vi.fn(async () => 4242),
+        remove: vi.fn(),
+        ensureActiveTab: vi.fn(async () => 1),
+      },
+    });
+    await sessions.start("remote");
+    const cdp = { send: vi.fn() } as unknown as TestDispatcherCdp;
+    const dispatcher = new ToolDispatcher({ transport, sessions, cdp });
+    dispatcher.start();
+    deliver(makeRequest(method, { session_id: "remote" }));
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toMatchObject({ error: { code: "unsupported" } });
+    expect(cdp.send).not.toHaveBeenCalled();
+    dispatcher.stop();
+  });
+
   it("uses the configured recording runtime for start and stop", async () => {
     const { transport, sent, deliver } = fakeTransport();
     const sessions = new SessionManager({
@@ -170,7 +194,11 @@ describe("ToolDispatcher", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({
       id: "r-1",
-      result: { agent_window_id: 4242, fallback_created: false },
+      result: {
+        agent_window_id: 4242,
+        fallback_created: false,
+        interaction: { borrow_confirmation: "always", request_help: "enabled" },
+      },
     });
   });
 
@@ -216,7 +244,17 @@ describe("ToolDispatcher", () => {
     expect(create).not.toHaveBeenCalled();
     expect(currentTab.getLastFocusedActiveTab).toHaveBeenCalledOnce();
     expect(sessions.get("aa11")).toMatchObject({ mode: "current_tab", attachedTabId: 60 });
-    expect(sent).toEqual([{ id: "r-1", result: { attached_tab_id: 60, fallback_created: false } }]);
+    // 经真实路由返回固定页签身份与交互策略，不能因协议升级退回新建窗口。
+    expect(sent).toEqual([
+      {
+        id: "r-1",
+        result: {
+          attached_tab_id: 60,
+          fallback_created: false,
+          interaction: { borrow_confirmation: "always", request_help: "enabled" },
+        },
+      },
+    ]);
   });
 
   it("routes tool.session_stop and replies with empty result", async () => {
@@ -653,6 +691,7 @@ describe("ToolDispatcher", () => {
     let resolveNode: ((value: object) => void) | undefined;
     const cdp = {
       send: vi.fn(async (_tabId: number, method: string) => {
+        if (method === "Runtime.evaluate") return { result: { value: "visible" } };
         if (method === "DOM.resolveNode")
           return new Promise((resolve) => {
             resolveNode = resolve;
