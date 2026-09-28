@@ -6,6 +6,14 @@
     "session_id"
   ],
   "properties": {
+    "attach_tab_id": {
+      "description": "精确附着发送消息时的页签；提供时禁止回退活动页签或创建替代页面。",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
     "browser_instance_id": {
       "type": [
         "string",

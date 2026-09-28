@@ -54,6 +54,9 @@ pub struct InteractionPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionStartParams {
     pub session_id: String,
+    /// 精确附着发送消息时的页签；提供时禁止回退活动页签或创建替代页面。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach_tab_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_instance_id: Option<String>,
     /// Optional Agent Window outer width in CSS pixels (100..=7680).

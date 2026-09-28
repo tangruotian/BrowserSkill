@@ -646,6 +646,27 @@ export async function handleTabSelect(
   const ab = aborted(deps.signal, "tab_select");
   if (ab) return ab;
 
+  // 显式 tab_select 才允许 current_tab 改绑。仍限定同一用户窗口并检查其他会话占用；
+  // 成功后清空旧 refs 和文档守卫，后续调用必须建立新页面证据，不能携带旧目标继续点击。
+  if (ctx.mode === "current_tab") {
+    try {
+      const tab = await getTabsApi(deps).get(params.tab_id);
+      const target = { tabId: params.tab_id, windowId: tab.windowId, url: tab.url };
+      if (target.windowId !== ctx.agentWindowId) throw new Error("不能自动切换到其他用户窗口");
+      manager.assertCurrentTabAvailable(target, ctx.sessionId);
+      if (deps.signal?.aborted) return { code: "cancelled", message: "tab_select aborted" };
+      await getTabsApi(deps).update(params.tab_id, { active: true });
+      manager.rebindCurrentTab(ctx.sessionId, target);
+      delete ctx.browserGuard;
+      return { tab_id: params.tab_id, window_id: tab.windowId };
+    } catch (error) {
+      return {
+        code: "protocol_error",
+        message: error instanceof Error ? error.message : "无法切换目标页签",
+      };
+    }
+  }
+
   const tabOrErr = await authoriseAgentTab(
     manager,
     ctx,

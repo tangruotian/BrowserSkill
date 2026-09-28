@@ -25,6 +25,38 @@ function fakeAgentWindow(): AgentWindowApi & {
 }
 
 describe("SessionManager", () => {
+  // 发送消息后活动页已变，精确附着仍必须读取指定页，且不能创建替代页。
+  it("attaches the explicit tab without consulting the active tab", async () => {
+    const active = vi.fn(async () => ({ tabId: 2, windowId: 1, url: "https://other.test" }));
+    const exact = vi.fn(async (tabId: number) => ({
+      tabId,
+      windowId: 1,
+      url: "https://target.test",
+    }));
+    const sm = new SessionManager({
+      currentTab: { getLastFocusedActiveTab: active, getTab: exact },
+    });
+    expect((await sm.start("exact", { mode: "current_tab", attachTabId: 7 })).attachedTabId).toBe(
+      7,
+    );
+    expect(active).not.toHaveBeenCalled();
+    expect(exact).toHaveBeenCalledWith(7);
+  });
+  it("does not replace an explicitly selected restricted tab", async () => {
+    const create = vi.fn();
+    const sm = new SessionManager({
+      currentTab: {
+        getLastFocusedActiveTab: vi.fn(),
+        getTab: async (tabId) => ({ tabId, windowId: 1, url: "chrome://settings" }),
+        createWorkTab: create,
+      },
+    });
+    await expect(sm.start("restricted", { mode: "current_tab", attachTabId: 7 })).rejects.toThrow(
+      "未创建替代",
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(sm.list()).toHaveLength(0);
+  });
   // 保护新增远程连接与本地固定页签模式的交界：拒绝前不得读取或创建用户页签。
   it("rejects remote current-tab attachment before touching user tabs", async () => {
     const aw = fakeAgentWindow();

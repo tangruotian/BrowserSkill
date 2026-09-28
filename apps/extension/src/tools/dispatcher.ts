@@ -1,4 +1,5 @@
 import type { InteractionPreferenceStore } from "@/lib/interaction-preferences";
+import { guardedCdp } from "./document-guard";
 import { OVERLAY_AUTOMATION_BYPASS } from "@/lib/overlay-bridge";
 import { ScreenshotExports } from "@/long-screenshot/exports";
 import type { SessionManager } from "@/session-manager/manager";
@@ -341,6 +342,11 @@ export class ToolDispatcher {
 
   private async invoke(req: RequestFrame, signal: AbortSignal): Promise<unknown | RpcError> {
     const sessionId = (req.params as { session_id?: string } | undefined)?.session_id;
+    // Pipeline 已有独立执行前证据检查，不能把普通对话上一次观察的守卫套到它的恢复循环。
+    const cdp =
+      this.cdp && !req.method.startsWith("tool.pipeline")
+        ? guardedCdp(this.cdp, sessionId ? this.sessions.get(sessionId) : null)
+        : this.cdp;
     // Also enforce this for gateways backed by a local-mode daemon, where the
     // standalone server's early IPC rejection does not apply.
     if (
@@ -363,7 +369,7 @@ export class ToolDispatcher {
         await this.screenshotExports.releaseSession((req.params as SessionStopParams).session_id);
         await this.releaseHoverLatch((req.params as SessionStopParams).session_id);
         return handleSessionStop(this.sessions, req.params as SessionStopParams, {
-          cdp: this.cdp,
+          cdp: cdp,
           // Must be wired in production: the agent-tab cleanup and the
           // window-release decision (issue #57) read these deps directly
           // and silently no-op when they are absent.
@@ -377,7 +383,7 @@ export class ToolDispatcher {
       case "tool.tab_create": {
         const result = await handleTabCreate(this.sessions, req.params as TabCreateParams, {
           signal,
-          cdp: this.cdp,
+          cdp: cdp,
         });
         if (!isRpcError(result)) {
           this.onAgentTabClaimed?.(result.tab_id, result.window_id);
@@ -405,7 +411,7 @@ export class ToolDispatcher {
       case "tool.tab_return":
         return handleTabReturn(this.sessions, req.params as TabReturnParams, {
           signal,
-          cdp: this.cdp,
+          cdp: cdp,
           beforeReturn: async (sessionId, tabId) => {
             if (this.sessions.get(sessionId)?.remote) clearRecordingForSession(sessionId);
             await this.releaseHoverLatch(sessionId, tabId);
@@ -422,15 +428,15 @@ export class ToolDispatcher {
         return handleEmulate(
           this.sessions,
           req.params as EmulateParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
         );
       case "tool.screenshot_full_page":
-        if (!this.cdp) return { code: "unsupported", message: "Full-page screenshot requires CDP" };
+        if (!cdp) return { code: "unsupported", message: "Full-page screenshot requires CDP" };
         return handleFullPageScreenshot(
           this.sessions,
           req.params as ScreenshotFullPageParams,
           {
-            cdp: this.cdp,
+            cdp: cdp,
             tabsApi: chromeTabsApi,
             exports: this.screenshotExports,
           },
@@ -444,8 +450,8 @@ export class ToolDispatcher {
         return handleScreenshot(
           this.sessions,
           req.params as ScreenshotParams,
-          this.cdp
-            ? { cdp: this.cdp, tabsApi: chromeTabsCaptureApi, captureApi: chromeTabsCaptureApi }
+          cdp
+            ? { cdp: cdp, tabsApi: chromeTabsCaptureApi, captureApi: chromeTabsCaptureApi }
             : undefined,
           signal,
         );
@@ -453,14 +459,14 @@ export class ToolDispatcher {
         return handleConsole(
           this.sessions,
           req.params as ConsoleParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsApi } : undefined,
           signal,
         );
       case "tool.network":
         return handleNetwork(
           this.sessions,
           req.params as NetworkParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsApi } : undefined,
           signal,
         );
       case "tool.snapshot":
@@ -470,7 +476,7 @@ export class ToolDispatcher {
             handleSnapshot(
               this.sessions,
               req.params as SnapshotParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsCaptureApi } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsCaptureApi } : undefined,
               signal,
             ),
           {},
@@ -486,9 +492,9 @@ export class ToolDispatcher {
             handleObserve(
               this.sessions,
               params,
-              this.cdp
+              cdp
                 ? {
-                    cdp: this.cdp,
+                    cdp: cdp,
                     tabsApi: chromeTabsCaptureApi,
                     // Active hover probing is opt-in. A held hover latch still
                     // suppresses it, because probing would move the cursor off
@@ -508,7 +514,7 @@ export class ToolDispatcher {
         return handleGetHtml(
           this.sessions,
           req.params as GetHtmlParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsCaptureApi } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsCaptureApi } : undefined,
           signal,
         );
       case "tool.navigate":
@@ -518,7 +524,7 @@ export class ToolDispatcher {
             handleNavigate(
               this.sessions,
               req.params as NavigateParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -529,7 +535,7 @@ export class ToolDispatcher {
             handleNavigateBack(
               this.sessions,
               req.params as NavigateBackParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -540,7 +546,7 @@ export class ToolDispatcher {
             handleNavigateForward(
               this.sessions,
               req.params as NavigateForwardParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -551,7 +557,7 @@ export class ToolDispatcher {
             handleReload(
               this.sessions,
               req.params as ReloadParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -562,9 +568,9 @@ export class ToolDispatcher {
             handleClick(
               this.sessions,
               req.params as ClickParams,
-              this.cdp
+              cdp
                 ? {
-                    cdp: this.cdp,
+                    cdp: cdp,
                     tabsApi: chromeTabsApi,
                     signal,
                     bypassOverlay,
@@ -578,9 +584,9 @@ export class ToolDispatcher {
         const result = await handleHover(
           this.sessions,
           req.params as HoverParams,
-          this.cdp
+          cdp
             ? {
-                cdp: this.cdp,
+                cdp: cdp,
                 tabsApi: chromeTabsApi,
                 signal,
                 bypassOverlay: (tabId, enabled) =>
@@ -598,9 +604,7 @@ export class ToolDispatcher {
             handleWheel(
               this.sessions,
               req.params as WheelParams,
-              this.cdp
-                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay }
-                : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal, bypassOverlay } : undefined,
             ),
           { releaseAfter: true },
           signal,
@@ -612,7 +616,7 @@ export class ToolDispatcher {
             handleScrollTo(
               this.sessions,
               req.params as ScrollToParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -623,7 +627,7 @@ export class ToolDispatcher {
             handleFocus(
               this.sessions,
               req.params as FocusParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -634,7 +638,7 @@ export class ToolDispatcher {
             handleBlur(
               this.sessions,
               req.params as BlurParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -645,7 +649,7 @@ export class ToolDispatcher {
             handleFill(
               this.sessions,
               req.params as FillParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -656,7 +660,7 @@ export class ToolDispatcher {
             handlePress(
               this.sessions,
               req.params as PressParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -667,7 +671,7 @@ export class ToolDispatcher {
             handleSelect(
               this.sessions,
               req.params as SelectParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
             ),
           signal,
         );
@@ -675,9 +679,9 @@ export class ToolDispatcher {
         return this.withHoverReleaseForRequest(
           req.params as UploadParams,
           () =>
-            this.cdp
+            cdp
               ? handleUpload(this.sessions, req.params as UploadParams, {
-                  cdp: this.cdp,
+                  cdp: cdp,
                   tabsApi: chromeTabsApi,
                   signal,
                   bypassOverlay,
@@ -692,9 +696,9 @@ export class ToolDispatcher {
         return this.withHoverReleaseForRequest(
           req.params as DownloadParams,
           () =>
-            this.cdp
+            cdp
               ? handleDownload(this.sessions, req.params as DownloadParams, {
-                  cdp: this.cdp,
+                  cdp: cdp,
                   tabsApi: chromeTabsApi,
                   signal,
                   bypassOverlay,
@@ -707,25 +711,25 @@ export class ToolDispatcher {
         );
       case "tool.pipeline_read":
       case "tool.pipeline_step":
-        return this.cdp
+        return cdp
           ? handlePipeline(
               this.sessions,
               req.params as PipelineParams,
               req.method === "tool.pipeline_read",
-              { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay },
+              { cdp: cdp, tabsApi: chromeTabsApi, signal, bypassOverlay },
             )
           : { code: "unsupported", message: "pipeline requires CDP" };
       case "tool.evaluate":
         return handleEvaluate(
           this.sessions,
           req.params as EvaluateParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
         );
       case "tool.wait_for_navigation":
         return handleWaitForNavigation(
           this.sessions,
           req.params as WaitForNavigationParams,
-          this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+          cdp ? { cdp: cdp, tabsApi: chromeTabsApi, signal } : undefined,
         );
       case "tool.request_help":
         return handleRequestHelp(this.sessions, req.params as RequestHelpParams, {
@@ -736,7 +740,7 @@ export class ToolDispatcher {
             await chrome.tabs.update(tabId, { active: true });
           },
           sendToTab: (tabId, msg) => chrome.tabs.sendMessage(tabId, msg),
-          ...(this.cdp ? { cdp: this.cdp } : {}),
+          ...(cdp ? { cdp: cdp } : {}),
           notifications: makeHelpNotifications(),
           notificationCopy: this.helpNotificationCopy?.(),
           signal,

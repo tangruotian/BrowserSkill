@@ -61,6 +61,9 @@ pub struct SessionInterruptArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct SessionStartArgs {
+    /// 精确附着已有页签，不依赖用户执行时的活动页；必须配合 current-tab 模式。
+    #[arg(long, requires = "attach_current_tab")]
+    pub attach_tab_id: Option<i64>,
     /// Deprecated compatibility flag. Automation settings in the extension take precedence.
     #[arg(long)]
     pub unattended: bool,
@@ -119,6 +122,8 @@ pub struct SessionStopArgs {
 
 #[derive(Debug, Serialize)]
 struct StartParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attach_tab_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,6 +223,7 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
     let result = start_session(
         sock,
         SessionStartOptions {
+            attach_tab_id: args.attach_tab_id,
             name: args.name,
             browser: args.browser,
             width: args.width,
@@ -261,6 +267,8 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
 /// (focused window, browser-chosen size).
 #[derive(Debug, Default, Clone)]
 pub struct SessionStartOptions {
+    /// 明确指定目标时，扩展必须回传同一个 attached_tab_id。
+    pub attach_tab_id: Option<i64>,
     pub name: Option<String>,
     pub browser: Option<String>,
     pub width: Option<u32>,
@@ -275,6 +283,7 @@ pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartRe
         sock,
         Method::SessionStart,
         Some(StartParams {
+            attach_tab_id: opts.attach_tab_id,
             task_name: opts.name,
             browser_instance_id: opts.browser,
             width: opts.width,
@@ -630,10 +639,29 @@ fn run_skill_sync_for_session_start(format: Format) {
 mod start_params_tests {
     use super::*;
 
+    /// 精确页签字段必须进入 IPC，同时缺省仍省略，兼容旧调用者。
+    #[test]
+    fn exact_tab_is_serialized_without_replacing_browser_identity() {
+        let params = StartParams {
+            attach_tab_id: Some(42),
+            mode: Some(SessionMode::CurrentTab),
+            task_name: None,
+            browser_instance_id: Some("browser-a".into()),
+            width: None,
+            height: None,
+            focused: None,
+        };
+        let value = serde_json::to_value(params).unwrap();
+        assert_eq!(value["attach_tab_id"], 42);
+        assert_eq!(value["browser_instance_id"], "browser-a");
+        assert_eq!(value["mode"], "current_tab");
+    }
+
     #[test]
     fn start_params_send_task_name_without_policy_overrides() {
         for task_name in [None, Some("Check settings".to_string())] {
             let params = StartParams {
+                attach_tab_id: None,
                 // 默认窗口模式保持旧协议载荷，固定页签模式由专门测试覆盖。
                 mode: None,
                 task_name: task_name.clone(),

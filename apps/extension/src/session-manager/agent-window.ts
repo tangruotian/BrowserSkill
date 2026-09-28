@@ -30,6 +30,8 @@ export interface CurrentTabTarget {
 
 /** Browser lookup kept injectable so current-tab startup is unit-testable. */
 export interface CurrentTabApi {
+  /** 按浏览器真实 ID 读取页签，不激活、不导航、不创建替代页。旧测试替身可缺省。 */
+  getTab?(tabId: number): Promise<CurrentTabTarget>;
   getLastFocusedActiveTab(): Promise<CurrentTabTarget>;
   createWorkTab?(windowId: number, url: string): Promise<CurrentTabTarget>;
   removeWorkTab?(tabId: number): Promise<void>;
@@ -121,6 +123,11 @@ export const chromeAgentWindowApi: AgentWindowApi = {
 };
 
 export const chromeCurrentTabApi: CurrentTabApi = {
+  async getTab(tabId: number): Promise<CurrentTabTarget> {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.id !== tabId || typeof tab.windowId !== "number") throw new Error("目标页签已失效");
+    return { tabId, windowId: tab.windowId, url: tab.url ?? tab.pendingUrl };
+  },
   async getLastFocusedActiveTab(): Promise<CurrentTabTarget> {
     const win = await chrome.windows.getLastFocused({
       populate: true,

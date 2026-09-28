@@ -813,6 +813,9 @@ fn tool_dispatch_transport_timeout(method: &Method, params: &Value) -> Result<Du
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CliSessionStartParams {
+    /// 透传精确页签约束，不能在 daemon 侧降级成活动页。
+    #[serde(default)]
+    pub attach_tab_id: Option<i64>,
     #[serde(default)]
     pub browser_instance_id: Option<String>,
     #[serde(default)]
@@ -936,6 +939,7 @@ async fn handle_session_start(
     let cancel = abort_guard.token().clone();
     let params: CliSessionStartParams = if params.is_null() {
         CliSessionStartParams {
+            attach_tab_id: None,
             browser_instance_id: None,
             width: None,
             height: None,
@@ -968,6 +972,7 @@ async fn handle_session_start(
         &state.tool_queues,
         params.browser_instance_id.as_deref(),
         AgentWindowOptions {
+            attach_tab_id: params.attach_tab_id,
             size: window_size,
             focused: params.focused,
             mode: params.mode,

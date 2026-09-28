@@ -469,6 +469,8 @@ fn protocol_at_least(actual: &str, minimum: &str) -> bool {
 /// (focused window, browser-chosen size).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AgentWindowOptions {
+    /// 精确附着目标；扩展拒绝或无法兑现时不得启动替代页面。
+    pub attach_tab_id: Option<i64>,
     /// Optional outer size as `(width, height)` CSS pixels.
     pub size: Option<(u32, u32)>,
     /// Optional focus hint (`None` = extension default: focused).
@@ -538,6 +540,7 @@ pub async fn start_session(
         .ok_or(StartSessionError::IdExhausted)?;
     let params = SessionStartParams {
         session_id: session_id.0.clone(),
+        attach_tab_id: window.attach_tab_id,
         browser_instance_id: Some(client.id.0.clone()),
         width: window.size.map(|(width, _)| width),
         height: window.size.map(|(_, height)| height),

@@ -13,6 +13,8 @@ import { RefStore } from "./ref-store";
 export type SessionMode = "agent_window" | "current_tab";
 
 export interface SessionContext {
+  /** 普通 Agent 当前观察建立的输入边界；连接、页签、文档任一变化都拒绝旧动作。 */
+  browserGuard?: { tabId: number; documentEpoch: number; attachmentId?: string };
   /** Remote connections retain dedicated windows, with explicit page ownership. */
   remote?: boolean;
   sessionId: string;
@@ -60,6 +62,8 @@ export interface SessionManagerOptions {
 
 /** Options for starting a session's Agent Window. */
 export interface SessionStartOptions {
+  /** 指定时只能绑定该页签，不能回退活动页或受限页面替代页。 */
+  attachTabId?: number;
   /** Defaults to the isolated Agent Window mode for backward compatibility. */
   mode?: SessionMode;
   /** Optional Agent Window outer size in CSS pixels. */
@@ -168,7 +172,8 @@ export class SessionManager {
     return Array.from(this.sessions.values());
   }
 
-  private assertCurrentTabAvailable(target: CurrentTabTarget, sessionId: string): void {
+  /** 改绑/附着共用占用校验；调用方必须在真正改绑时再次检查，不能把预检当预留锁。 */
+  assertCurrentTabAvailable(target: CurrentTabTarget, sessionId: string): void {
     const attachedBy = this.attachedTabIndex.get(target.tabId);
     if (attachedBy && attachedBy !== sessionId) {
       throw new Error(`[bh] tab ${target.tabId} is already attached by session ${attachedBy}`);
@@ -299,7 +304,12 @@ export class SessionManager {
     }
 
     if (opts.mode === "current_tab") {
-      const originalTarget = await this.currentTab.getLastFocusedActiveTab();
+      if (opts.attachTabId !== undefined && !this.currentTab.getTab)
+        throw new Error("当前执行器不支持精确页签附着");
+      const originalTarget =
+        opts.attachTabId === undefined
+          ? await this.currentTab.getLastFocusedActiveTab()
+          : await this.currentTab.getTab!(opts.attachTabId);
       throwIfSessionStartAborted(opts.signal);
       this.assertCurrentTabAvailable(originalTarget, sessionId);
       let target = originalTarget;
@@ -307,6 +317,8 @@ export class SessionManager {
       let createdTabId: number | null = null;
       try {
         if (cdpBlockedUrlReason(originalTarget.url)) {
+          if (opts.attachTabId !== undefined)
+            throw new Error("明确指定的页签不允许自动化；未创建替代页面");
           if (!this.currentTab.createWorkTab) {
             throw new Error("[bh] current-tab API cannot create a fallback work tab");
           }
@@ -352,7 +364,7 @@ export class SessionManager {
 
     let windowId: number | null = null;
     try {
-      const { signal: _signal, mode: _mode, ...createOptions } = opts;
+      const { signal: _signal, mode: _mode, attachTabId: _attachTabId, ...createOptions } = opts;
       windowId = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
       throwIfSessionStartAborted(opts.signal);
       const homeTabId = await this.agentWindow.ensureActiveTab(windowId, AGENT_WINDOW_HOME);

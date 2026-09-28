@@ -51,6 +51,8 @@ export function validateWindowSize(
 }
 
 export interface SessionStartParams {
+  /** 精确页签绑定的可选协议字段；调用方必须验证响应兑现了约束。 */
+  attach_tab_id?: number;
   session_id: string;
   browser_instance_id?: string;
   /** Defaults to the isolated Agent Window mode. */
@@ -145,6 +147,16 @@ export async function handleSessionStart(
   if (params.unattended !== undefined && typeof params.unattended !== "boolean") {
     return { code: "invalid_params", message: "unattended must be a boolean" };
   }
+  if (
+    params.attach_tab_id !== undefined &&
+    (params.mode !== "current_tab" ||
+      !Number.isSafeInteger(params.attach_tab_id) ||
+      params.attach_tab_id < 0)
+  )
+    return {
+      code: "invalid_params",
+      message: "attach_tab_id requires current_tab and a valid tab id",
+    };
   const sizeOrErr = validateWindowSize(params.width, params.height);
   if (isRpcError(sizeOrErr)) return sizeOrErr;
   if (params.mode === "current_tab" && (sizeOrErr !== undefined || params.focused !== undefined)) {
@@ -157,6 +169,7 @@ export async function handleSessionStart(
     await deps.preferences?.readyOrFallback();
     const ctx = await manager.start(params.session_id, {
       mode: params.mode ?? "agent_window",
+      attachTabId: params.attach_tab_id,
       size: sizeOrErr,
       focused: params.focused,
       signal: deps.signal,

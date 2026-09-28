@@ -65,6 +65,8 @@ export interface PipelineParams {
   request: {
     version: 1;
     op: string;
+    /** 普通 Agent 页面探测请求同时建立最终输入的文档守卫；旧调用缺省不改变行为。 */
+    guard?: boolean;
     requestId?: string;
     value?: Scalar;
     button?: "left" | "right";
@@ -512,7 +514,19 @@ export async function handlePipeline(
       documentEpoch: epoch,
       observedAt: Date.now(),
     };
-    if (r.op === "page") return { ok: true, ...page };
+    if (r.op === "page") {
+      if (r.guard === true) {
+        ctx.browserGuard = {
+          tabId: tid,
+          documentEpoch: epoch,
+          attachmentId: cdp.getAttachmentId?.(tid),
+        };
+        // Chrome 原生 documentId 与 DOM backendNodeId 是不同身份，不得互相冒充。
+        const frame = await globalThis.chrome?.webNavigation?.getFrame({ tabId: tid, frameId: 0 });
+        return { ok: true, ...page, guarded: true, documentId: frame?.documentId };
+      }
+      return { ok: true, ...page };
+    }
     const url = new URL(page.url);
     if (url.origin !== r.page?.origin || !url.pathname.startsWith(r.page.pathPrefix))
       return fail(
