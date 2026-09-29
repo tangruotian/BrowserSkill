@@ -469,6 +469,8 @@ fn protocol_at_least(actual: &str, minimum: &str) -> bool {
 /// (focused window, browser-chosen size).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AgentWindowOptions {
+    /// 当前浏览器窗口内新建工作页签；扩展负责原子创建及取消清理。
+    pub new_tab: bool,
     /// 精确附着目标；扩展拒绝或无法兑现时不得启动替代页面。
     pub attach_tab_id: Option<i64>,
     /// Optional outer size as `(width, height)` CSS pixels.
@@ -539,6 +541,7 @@ pub async fn start_session(
         .reserve_id(client.id.clone(), SESSION_ID_MAX_RESERVE_ATTEMPTS, now_ms)
         .ok_or(StartSessionError::IdExhausted)?;
     let params = SessionStartParams {
+        new_tab: window.new_tab,
         session_id: session_id.0.clone(),
         attach_tab_id: window.attach_tab_id,
         browser_instance_id: Some(client.id.0.clone()),

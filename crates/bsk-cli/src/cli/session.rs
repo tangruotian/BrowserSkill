@@ -61,6 +61,13 @@ pub struct SessionInterruptArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct SessionStartArgs {
+    /// 在现有浏览器窗口中新建工作页签，不要求旧页签仍存在，也不接管活动页。
+    #[arg(
+        long,
+        requires = "attach_current_tab",
+        conflicts_with = "attach_tab_id"
+    )]
+    pub new_tab: bool,
     /// 精确附着已有页签，不依赖用户执行时的活动页；必须配合 current-tab 模式。
     #[arg(long, requires = "attach_current_tab")]
     pub attach_tab_id: Option<i64>,
@@ -122,6 +129,8 @@ pub struct SessionStopArgs {
 
 #[derive(Debug, Serialize)]
 struct StartParams {
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    new_tab: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     attach_tab_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -223,6 +232,7 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
     let result = start_session(
         sock,
         SessionStartOptions {
+            new_tab: args.new_tab,
             attach_tab_id: args.attach_tab_id,
             name: args.name,
             browser: args.browser,
@@ -267,6 +277,8 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
 /// (focused window, browser-chosen size).
 #[derive(Debug, Default, Clone)]
 pub struct SessionStartOptions {
+    /// 显式新建当前浏览器内的工作页签；默认 false 保持原附着语义。
+    pub new_tab: bool,
     /// 明确指定目标时，扩展必须回传同一个 attached_tab_id。
     pub attach_tab_id: Option<i64>,
     pub name: Option<String>,
@@ -283,6 +295,7 @@ pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartRe
         sock,
         Method::SessionStart,
         Some(StartParams {
+            new_tab: opts.new_tab,
             attach_tab_id: opts.attach_tab_id,
             task_name: opts.name,
             browser_instance_id: opts.browser,
@@ -643,6 +656,7 @@ mod start_params_tests {
     #[test]
     fn exact_tab_is_serialized_without_replacing_browser_identity() {
         let params = StartParams {
+            new_tab: false,
             attach_tab_id: Some(42),
             mode: Some(SessionMode::CurrentTab),
             task_name: None,
@@ -661,6 +675,7 @@ mod start_params_tests {
     fn start_params_send_task_name_without_policy_overrides() {
         for task_name in [None, Some("Check settings".to_string())] {
             let params = StartParams {
+                new_tab: false,
                 attach_tab_id: None,
                 // 默认窗口模式保持旧协议载荷，固定页签模式由专门测试覆盖。
                 mode: None,

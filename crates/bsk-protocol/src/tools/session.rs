@@ -54,6 +54,10 @@ pub struct InteractionPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionStartParams {
     pub session_id: String,
+    /// 显式新建工作页签；仅 current_tab 支持，不能同时指定 attach_tab_id。
+    /// 成功时 fallback_created 必须为 true，宿主据此拒绝旧端静默忽略参数。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_tab: bool,
     /// 精确附着发送消息时的页签；提供时禁止回退活动页签或创建替代页面。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_tab_id: Option<i64>,

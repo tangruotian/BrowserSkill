@@ -14,6 +14,39 @@ fn parse(args: &[&str]) -> Cli {
     Cli::try_parse_from(args).expect("clap parse should succeed")
 }
 
+/// 新建当前浏览器内的工作页必须是显式目标意图，不能和精确旧页附着混用。
+#[test]
+fn parses_new_work_tab_without_allowing_conflicting_targets() {
+    let Command::Session(SessionCmd {
+        sub: SessionSub::Start(args),
+    }) = parse(&[
+        "bsk",
+        "session",
+        "start",
+        "--attach-current-tab",
+        "--new-tab",
+    ])
+    .command
+    else {
+        panic!("expected session start");
+    };
+    assert!(args.new_tab);
+    assert!(args.attach_tab_id.is_none());
+    assert!(Cli::try_parse_from(["bsk", "session", "start", "--new-tab"]).is_err());
+    assert!(
+        Cli::try_parse_from([
+            "bsk",
+            "session",
+            "start",
+            "--attach-current-tab",
+            "--new-tab",
+            "--attach-tab-id",
+            "7"
+        ])
+        .is_err()
+    );
+}
+
 #[test]
 fn parses_unattended_session_without_changing_normal_defaults() {
     for unattended in [false, true] {

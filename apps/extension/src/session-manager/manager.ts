@@ -62,6 +62,8 @@ export interface SessionManagerOptions {
 
 /** Options for starting a session's Agent Window. */
 export interface SessionStartOptions {
+  /** 明确请求新页签时只借用已有窗口，不附着或检查原活动页的控制权。 */
+  newTab?: boolean;
   /** 指定时只能绑定该页签，不能回退活动页或受限页面替代页。 */
   attachTabId?: number;
   /** Defaults to the isolated Agent Window mode for backward compatibility. */
@@ -298,6 +300,10 @@ export class SessionManager {
     }
     throwIfSessionStartAborted(opts.signal);
 
+    // 防止绕过 RPC 校验的内部调用同时携带两种互斥的目标意图。
+    if (opts.newTab && (opts.mode !== "current_tab" || opts.attachTabId !== undefined))
+      throw new Error("newTab requires current_tab without attachTabId");
+
     // 远程任务必须经独立窗口和显式借用授权，不能用本地快捷模式接管当前用户页签。
     if (opts.mode === "current_tab" && this.remote()) {
       throw new Error("[bh] remote sessions cannot attach the current user tab; use tab_borrow");
@@ -311,12 +317,14 @@ export class SessionManager {
           ? await this.currentTab.getLastFocusedActiveTab()
           : await this.currentTab.getTab!(opts.attachTabId);
       throwIfSessionStartAborted(opts.signal);
-      this.assertCurrentTabAvailable(originalTarget, sessionId);
+      if (!opts.newTab) this.assertCurrentTabAvailable(originalTarget, sessionId);
       let target = originalTarget;
       let fallbackCreated = false;
       let createdTabId: number | null = null;
       try {
-        if (cdpBlockedUrlReason(originalTarget.url)) {
+        // 显式新建与受限页回退共用事务：只创建一个页签，取消时仅清理本次新建资源。
+        // 即使活动页属于其他会话也能新建；绝不抢占它的绑定或启动替代浏览器。
+        if (opts.newTab || cdpBlockedUrlReason(originalTarget.url)) {
           if (opts.attachTabId !== undefined)
             throw new Error("明确指定的页签不允许自动化；未创建替代页面");
           if (!this.currentTab.createWorkTab) {
@@ -364,7 +372,13 @@ export class SessionManager {
 
     let windowId: number | null = null;
     try {
-      const { signal: _signal, mode: _mode, attachTabId: _attachTabId, ...createOptions } = opts;
+      const {
+        signal: _signal,
+        mode: _mode,
+        attachTabId: _attachTabId,
+        newTab: _newTab,
+        ...createOptions
+      } = opts;
       windowId = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
       throwIfSessionStartAborted(opts.signal);
       const homeTabId = await this.agentWindow.ensureActiveTab(windowId, AGENT_WINDOW_HOME);

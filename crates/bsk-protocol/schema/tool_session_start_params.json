@@ -44,6 +44,10 @@
         }
       ]
     },
+    "new_tab": {
+      "description": "显式新建工作页签；仅 current_tab 支持，不能同时指定 attach_tab_id。 成功时 fallback_created 必须为 true，宿主据此拒绝旧端静默忽略参数。",
+      "type": "boolean"
+    },
     "session_id": {
       "type": "string"
     },

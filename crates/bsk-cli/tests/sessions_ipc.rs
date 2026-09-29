@@ -248,6 +248,16 @@ async fn respond_to_aborted_stop(
 
 #[tokio::test]
 async fn current_tab_start_stop_round_trip_reports_fallback_via_ipc() {
+    current_tab_round_trip(false).await;
+}
+
+/// 经过真实 IPC/daemon/WebSocket 确认新增字段没有在中间层丢失；旧请求仍保持原语义。
+#[tokio::test]
+async fn new_work_tab_intent_reaches_extension_via_ipc() {
+    current_tab_round_trip(true).await;
+}
+
+async fn current_tab_round_trip(new_tab: bool) {
     let (handle, sock) = spawn_daemon().await;
     let mut ws = connect_ext(handle.ws_addr()).await;
     let _ = handshake_as_ext(&mut ws).await;
@@ -280,6 +290,7 @@ async fn current_tab_start_stop_round_trip_reports_fallback_via_ipc() {
                             serde_json::from_value(req.params.clone().unwrap()).unwrap();
                         assert_eq!(params.focused, None);
                         assert_eq!(params.mode, SessionMode::CurrentTab);
+                        assert_eq!(params.new_tab, new_tab);
                         let result = SessionStartResult {
                             interaction: None,
                             agent_window_id: None,
@@ -315,6 +326,7 @@ async fn current_tab_start_stop_round_trip_reports_fallback_via_ipc() {
     struct StartParams {
         browser_instance_id: Option<String>,
         mode: SessionMode,
+        new_tab: bool,
     }
     #[derive(serde::Deserialize, Debug)]
     struct StartReply {
@@ -332,6 +344,7 @@ async fn current_tab_start_stop_round_trip_reports_fallback_via_ipc() {
             Some(StartParams {
                 browser_instance_id: None,
                 mode: SessionMode::CurrentTab,
+                new_tab,
             }),
             Duration::from_secs(5),
         )

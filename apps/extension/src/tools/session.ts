@@ -51,6 +51,8 @@ export function validateWindowSize(
 }
 
 export interface SessionStartParams {
+  /** 仅新建当前浏览器窗口内的页签，不能与 attach_tab_id 同时使用。 */
+  new_tab?: boolean;
   /** 精确页签绑定的可选协议字段；调用方必须验证响应兑现了约束。 */
   attach_tab_id?: number;
   session_id: string;
@@ -148,6 +150,14 @@ export async function handleSessionStart(
     return { code: "invalid_params", message: "unattended must be a boolean" };
   }
   if (
+    (params.new_tab !== undefined && typeof params.new_tab !== "boolean") ||
+    (params.new_tab && (params.mode !== "current_tab" || params.attach_tab_id !== undefined))
+  )
+    return {
+      code: "invalid_params",
+      message: "new_tab requires current_tab without attach_tab_id",
+    };
+  if (
     params.attach_tab_id !== undefined &&
     (params.mode !== "current_tab" ||
       !Number.isSafeInteger(params.attach_tab_id) ||
@@ -170,6 +180,7 @@ export async function handleSessionStart(
     const ctx = await manager.start(params.session_id, {
       mode: params.mode ?? "agent_window",
       attachTabId: params.attach_tab_id,
+      newTab: params.new_tab,
       size: sizeOrErr,
       focused: params.focused,
       signal: deps.signal,

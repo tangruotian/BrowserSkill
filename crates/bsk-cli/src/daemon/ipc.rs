@@ -813,6 +813,9 @@ fn tool_dispatch_transport_timeout(method: &Method, params: &Value) -> Result<Du
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CliSessionStartParams {
+    /// 新建页签意图必须贯穿 CLI/daemon/扩展，不能降级为附着当前活动页。
+    #[serde(default)]
+    pub new_tab: bool,
     /// 透传精确页签约束，不能在 daemon 侧降级成活动页。
     #[serde(default)]
     pub attach_tab_id: Option<i64>,
@@ -939,6 +942,7 @@ async fn handle_session_start(
     let cancel = abort_guard.token().clone();
     let params: CliSessionStartParams = if params.is_null() {
         CliSessionStartParams {
+            new_tab: false,
             attach_tab_id: None,
             browser_instance_id: None,
             width: None,
@@ -972,6 +976,7 @@ async fn handle_session_start(
         &state.tool_queues,
         params.browser_instance_id.as_deref(),
         AgentWindowOptions {
+            new_tab: params.new_tab,
             attach_tab_id: params.attach_tab_id,
             size: window_size,
             focused: params.focused,
