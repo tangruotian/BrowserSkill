@@ -1,6 +1,7 @@
 import type { CdpTarget } from "@/browser-driver/frame-graph";
 import { captureSelection } from "@/lib/recording/selection-evidence";
 import type { SessionManager } from "@/session-manager/manager";
+import { fitReplayViewport, restoreReplayViewport, type ZoomApi } from "./replay-viewport";
 import {
   handleBlur,
   handleClick,
@@ -65,6 +66,8 @@ export interface PipelineParams {
   request: {
     version: 1;
     op: string;
+    /** 宿主回放运行 ID，仅用于临时缩放的清理归属，不是业务动作 ID。 */
+    runId?: string;
     /** 普通 Agent 页面探测请求同时建立最终输入的文档守卫；旧调用缺省不改变行为。 */
     guard?: boolean;
     requestId?: string;
@@ -315,11 +318,28 @@ function validRequest(p: PipelineParams, read: boolean): boolean {
     !(
       read
         ? ["capabilities", "page", "read", "prepare_upload"]
-        : ["click", "fill", "select", "press", "hover", "scroll"]
+        : ["click", "fill", "select", "press", "hover", "scroll", "fit_viewport", "restore_viewport"]
     ).includes(r.op)
   )
     return false;
   if (r.op === "capabilities" || r.op === "page") return read;
+  // 视口操作只走写通道：不能用 --read 绕过用户中断，也不接受模型指定缩放脚本。
+  if (r.op === "fit_viewport" || r.op === "restore_viewport") {
+    if (typeof r.runId !== "string" || !/^[a-zA-Z0-9_-]{1,150}$/.test(r.runId)) return false;
+    if (r.op === "restore_viewport") return true;
+    try {
+      return (
+        !!r.page &&
+        ["http:", "https:"].includes(new URL(r.page.origin).protocol) &&
+        new URL(r.page.origin).origin === r.page.origin &&
+        typeof r.page.pathPrefix === "string" &&
+        r.page.pathPrefix.startsWith("/") &&
+        Number.isSafeInteger(r.documentEpoch)
+      );
+    } catch {
+      return false;
+    }
+  }
   // 固定滚动动作只接受非负绝对位置；不能携带任意脚本或无界滚动表达式。
   if (
     r.op === "scroll" &&
@@ -463,7 +483,7 @@ export async function handlePipeline(
   manager: SessionManager,
   params: PipelineParams,
   read: boolean,
-  deps: InteractionDeps,
+  deps: InteractionDeps & { zoomApi?: ZoomApi },
 ): Promise<Record<string, unknown>> {
   let phase = "not_started";
   const fail = (message: string) => ({
@@ -486,6 +506,7 @@ export async function handlePipeline(
       selectionDiscovery: 1,
       selectionProbe: 1,
       recordedActions: 1,
+      replayViewport: 1,
     };
   const ctx = lookupSession(manager, params, "pipeline");
   if (isRpcError(ctx)) return fail(ctx.message);
@@ -501,6 +522,17 @@ export async function handlePipeline(
   try {
     deps.signal?.throwIfAborted();
     cdp.trackSessionTab?.(ctx.sessionId, tid);
+    if (r.op === "restore_viewport") {
+      phase = "may_have_executed";
+      return {
+        ok: true,
+        ...(await restoreReplayViewport(ctx, r.runId!, tid, {
+          cdp,
+          signal: deps.signal,
+          zoomApi: deps.zoomApi ?? chrome.tabs,
+        })),
+      };
+    }
     const document = await cdp.send<{ root: { nodeId: number; backendNodeId: number } }>(
       tid,
       "DOM.getDocument",
@@ -538,6 +570,19 @@ export async function handlePipeline(
       );
     if (r.documentEpoch !== undefined && epoch !== r.documentEpoch)
       return fail("Document changed; observe again");
+    if (r.op === "fit_viewport") {
+      // 环境准备独立于业务输入；即使缩放回执丢失，也不能推导点击已经派发。
+      phase = "may_have_executed";
+      return {
+        ok: true,
+        ...page,
+        ...(await fitReplayViewport(ctx, r.runId!, page, {
+          cdp,
+          signal: deps.signal,
+          zoomApi: deps.zoomApi ?? chrome.tabs,
+        })),
+      };
+    }
     const target = r.target as Target;
     const scope = target.frame?.length
       ? await resolvePipelineDocument(cdp, tid, target.frame, group)

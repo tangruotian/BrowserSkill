@@ -358,3 +358,37 @@ it.each([
     facts: { visible: true },
   });
 });
+
+// 环境变更也必须经过 pipeline_step 门禁，不能用只读通道绕开用户停止。
+it.each(["fit_viewport", "restore_viewport"])("视口请求拒绝只读通道：%s", async (op) => {
+  const s = await setup();
+  s.params.request = { version: 1, op, runId: "run-fit", documentEpoch: 10,
+    page: { origin: "https://example.test", pathPrefix: "/customers" } };
+  expect(await handlePipeline(s.manager, s.params, true, s.deps)).toMatchObject({ ok: false, phase: "not_started" });
+  expect(s.send).not.toHaveBeenCalled();
+});
+
+it("宽度适配与恢复穿过真实处理器，不派发点击也不要求元素定位", async () => {
+  const s = await setup();
+  s.params.request = { version: 1, op: "capabilities" };
+  expect(await handlePipeline(s.manager, s.params, true, s.deps)).toMatchObject({ replayViewport: 1 });
+  let zoom = 1;
+  let settings = { mode: "automatic", scope: "per-origin" } as chrome.tabs.ZoomSettings;
+  const zoomApi = {
+    getZoom: vi.fn(async () => zoom),
+    getZoomSettings: vi.fn(async () => settings),
+    setZoom: vi.fn(async (_id: number, value: number) => { zoom = value; }),
+    setZoomSettings: vi.fn(async (_id: number, value: chrome.tabs.ZoomSettings) => { settings = value; }),
+  };
+  const original = s.send.getMockImplementation()!;
+  s.send.mockImplementation(async (tab, method, args) => method === "Runtime.callFunctionOn"
+    ? { result: { value: { ready: true, viewportWidth: 960 / zoom, contentWidth: 1280 } } }
+    : original(tab, method, args));
+  s.params.request = { version: 1, op: "fit_viewport", runId: "run-fit", documentEpoch: 10,
+    page: { origin: "https://example.test", pathPrefix: "/customers" } };
+  expect(await handlePipeline(s.manager, s.params, false, { ...s.deps, zoomApi })).toMatchObject({ ok: true, changed: true, fitted: true, zoom: 0.75 });
+  s.params.request = { version: 1, op: "restore_viewport", runId: "run-fit" };
+  expect(await handlePipeline(s.manager, s.params, false, { ...s.deps, zoomApi })).toMatchObject({ ok: true, restored: true });
+  expect(zoom).toBe(1);
+  expect(action).not.toHaveBeenCalled();
+});
