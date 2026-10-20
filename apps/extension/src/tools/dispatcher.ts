@@ -143,6 +143,8 @@ interface HoverLatchScope {
 }
 
 export interface DispatcherDeps {
+  /** 管理员更新走独立快路径，不等待审计、任务或页面工具。 */
+  extensionUpdater?: import("@/lib/extension-update").ExtensionUpdater;
   video?: VideoManager;
   debug?: DebugManager;
   transport: Transport;
@@ -187,6 +189,7 @@ const OPENS_TABS = new Set(["tool.click", "tool.press"]);
  * takes the fast path.
  */
 export class ToolDispatcher {
+  private readonly extensionUpdater?: import("@/lib/extension-update").ExtensionUpdater;
   private readonly video?: VideoManager;
   private readonly debug?: DebugManager;
   private readonly transport: Transport;
@@ -214,6 +217,7 @@ export class ToolDispatcher {
   readonly inflightAbortControllers = new Map<string, AbortController>();
 
   constructor(deps: DispatcherDeps) {
+    this.extensionUpdater = deps.extensionUpdater;
     this.video = deps.video;
     this.debug = deps.debug;
     this.transport = deps.transport;
@@ -281,6 +285,13 @@ export class ToolDispatcher {
   private async dispatch(msg: ProtocolFrame): Promise<void> {
     if (!isRequestFrame(msg)) return;
     const req = msg as RequestFrame;
+
+    // 不依赖 session_id；管理员明确允许打断任务。没有控制器的旧实现仍返回
+    // unknown_method，部署端必须明确失败，不能降级成普通页面 evaluate。
+    if (req.method === "extension.update" && this.extensionUpdater) {
+      await this.extensionUpdater.handle(req, (reply) => this.transport.send(reply));
+      return;
+    }
 
     // Cancel frames take a fast path: trip the matching controller
     // (if any), reply with `{cancelled}` so the daemon can answer

@@ -75,6 +75,9 @@ function event<T extends unknown[] = []>() {
 async function fixture() {
   const overlay = new OverlayController();
   const onDetached = event<[number]>();
+  // 后台现在同步注册更新通知；保留真实监听链路，仍不允许调用个人 Chrome。
+  const onUpdateAvailable = event<[{ version: string }]>();
+  const reload = vi.fn();
   const sendMessage = vi.fn(
     async (_tabId: number, message: OverlayAgentStateMessage): Promise<unknown> => {
       overlay.applyAgentControlMode(message.sessionId, message.mode);
@@ -93,7 +96,7 @@ async function fixture() {
     },
     debugger: { onDetach: event() },
     webNavigation: { onBeforeNavigate: event(), onCompleted: event(), onErrorOccurred: event() },
-    runtime: { onMessage: event(), onConnect: event() },
+    runtime: { onMessage: event(), onConnect: event(), onUpdateAvailable, reload },
     notifications: { onClicked: event(), onButtonClicked: event() },
   });
   vi.mocked(watchDaemonConnection).mockReturnValue({ ready: Promise.resolve(), dispose() {} });
@@ -106,8 +109,17 @@ async function fixture() {
   (background as unknown as () => void)();
   const deps = vi.mocked(ToolDispatcher).mock.calls.at(-1)![0];
   const task = await deps.sessions.start("one");
-  return { overlay, onDetached, sendMessage, deps, task };
+  return { overlay, onDetached, sendMessage, deps, task, onUpdateAvailable, reload };
 }
+
+// 从实际 background 初始化验证接线，避免控制器单测通过但忘记挂到后台入口。
+it("wires immediate update reload even with a live task", async () => {
+  const f = await fixture();
+  expect(f.deps.extensionUpdater).toBeDefined();
+  f.onUpdateAvailable.emit({ version: "0.3.6" });
+  expect(f.reload).toHaveBeenCalledTimes(1);
+  expect(f.deps.sessions.list()).toHaveLength(1);
+});
 
 it.each([false, true])("hides an observed tab after detachment, remote=%s", async (remote) => {
   const f = await fixture();

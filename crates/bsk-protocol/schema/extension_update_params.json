@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExtensionUpdateParams",
+  "description": "CLI → daemon 的统一升级请求。省略 browser 时更新当前所有已连接浏览器； min_version 是部署包要求的最低扩展版本，而不是 CLI/Agent 的版本号。",
+  "type": "object",
+  "required": [
+    "timeout_ms"
+  ],
+  "properties": {
+    "browser": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "min_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

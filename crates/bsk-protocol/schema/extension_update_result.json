@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExtensionUpdateResult",
+  "description": "部分失败也保留其余浏览器的结果，供统一发布系统判断整体退出码。",
+  "type": "object",
+  "required": [
+    "browsers",
+    "ok"
+  ],
+  "properties": {
+    "browsers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ExtensionUpdateEntry"
+      }
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "definitions": {
+    "ExtensionUpdateEntry": {
+      "description": "单浏览器结论。ok 只表示已核验运行版本或检查确认无需更新； 已发出检查、下载完成、断开旧连接都不能单独算成功。",
+      "type": "object",
+      "required": [
+        "instance_id",
+        "message",
+        "ok",
+        "previous_version",
+        "status"
+      ],
+      "properties": {
+        "current_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "previous_version": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

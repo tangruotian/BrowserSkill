@@ -2,6 +2,7 @@
 
 pub mod cancel;
 pub mod error;
+pub mod extension;
 pub mod frame;
 pub mod method;
 pub mod system;

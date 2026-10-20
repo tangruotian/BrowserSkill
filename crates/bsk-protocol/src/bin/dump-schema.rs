@@ -40,6 +40,15 @@ fn main() {
     dump!(StatusParams, "system_status_params");
     dump!(StatusResult, "system_status_result");
     dump!(BrowserListParams, "browser_list_params");
+    // 部署请求与逐浏览器结果同样生成 schema，避免 CLI/daemon 契约漂移。
+    dump!(
+        bsk_protocol::extension::ExtensionUpdateParams,
+        "extension_update_params"
+    );
+    dump!(
+        bsk_protocol::extension::ExtensionUpdateResult,
+        "extension_update_result"
+    );
 
     dump!(CancelParams, "cancel_params");
     dump!(CancelResult, "cancel_result");

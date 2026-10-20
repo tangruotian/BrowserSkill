@@ -17,6 +17,7 @@ pub mod ensure_daemon;
 pub mod error;
 pub mod evaluate;
 pub mod extract;
+pub mod extension;
 pub mod get_html;
 pub mod human_loop;
 pub mod install_skill;
@@ -135,6 +136,10 @@ pub enum Command {
 
     /// List connected browsers.
     Browsers,
+
+    /// Manage installed extensions without updating the CLI from upstream.
+    #[command(subcommand)]
+    Extension(extension::ExtensionCmd),
 
     /// Tab management commands.
     Tab(TabCmd),

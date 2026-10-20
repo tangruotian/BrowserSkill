@@ -7,6 +7,7 @@ import { getAuditEnabled } from "@/lib/audit";
 import { attachAuditBridge } from "@/lib/audit-bridge";
 import { ConnectionController } from "@/lib/connection-controller";
 import { watchDaemonConnection } from "@/lib/daemon-connection-preference";
+import { ExtensionUpdater } from "@/lib/extension-update";
 import { startHeartbeat } from "@/lib/heartbeat";
 import {
   getConnectionEnabled,
@@ -68,6 +69,8 @@ import { VideoManager } from "@/video/manager";
 import { VIDEO_OVERLAY } from "@/video/overlay";
 
 export default defineBackground(() => {
+  // 同步监听 Chrome 更新事件；统一发布不等待正在执行的任务。
+  const extensionUpdater = new ExtensionUpdater();
   const controller = new ConnectionController();
   let remoteEndpoint: RemoteEndpoint | null = null;
   let connectionPreferenceValid = false;
@@ -406,6 +409,7 @@ export default defineBackground(() => {
   });
   void interactionPreferences.readyOrFallback();
   const dispatcher = new ToolDispatcher({
+    extensionUpdater,
     debug,
     video,
     interactionPreferences,

@@ -256,6 +256,26 @@ These features offer export and deletion. Stopping a task or disconnecting does 
 
 ## Updating
 
+For this managed fork, update the CLI/agent from the coordinated AIHub deployment package,
+not the upstream self-updater. Run the package's `install.sh` for both installation and upgrades,
+without arguments. It checks for an existing `node_modules` directory before installing dependencies:
+absent means first installation; present means upgrade, which also invokes the admin command below.
+For upgrades, extract the new package over the existing deployment directory and keep that dependency
+directory until the installer replaces its contents with `npm ci`:
+
+```bash
+bsk extension update --all --min-version 0.3.5 --timeout 120s
+```
+
+This command checks all currently connected extensions (or `--browser <id-or-label>`),
+immediately reloads available updates without waiting for tasks, and verifies the running
+version after reconnect. `--json` provides per-browser results; any failure exits nonzero.
+Chrome throttling is reported, not retried in a tight loop. Extensions before 0.3.5 need a
+one-time centrally managed baseline update; old daemons must be replaced by the bundled build.
+The browser itself and business tabs are not intentionally closed, but active tasks are interrupted.
+Chrome's periodic available-update events also reload immediately in this fork.
+
+Upstream CLI-only update instructions (not for managed fork deployments):
 Finish active browser tasks, then update the CLI:
 
 ```sh

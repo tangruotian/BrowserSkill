@@ -263,6 +263,8 @@ pub fn full_handler(status: DaemonStatus, state: Arc<DaemonState>) -> RpcHandler
                     Ok(v) => ResponseBody::Ok(v),
                     Err(e) => ResponseBody::Err(e),
                 },
+                // 升级是部署控制面，直接通知扩展，不排队等待录制/回放结束。
+                Method::ExtensionUpdate => super::extension::update(&state, params).await,
                 Method::TransferBegin => handle_transfer_begin(&state, params),
                 Method::TransferChunk => handle_transfer_chunk(&state, params),
                 Method::TransferFinish => handle_transfer_finish(&state, params),

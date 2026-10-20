@@ -52,6 +52,9 @@ pub enum Method {
 
     #[serde(rename = "browser.list")]
     BrowserList,
+    /// 管理员统一升级控制面，明确允许打断任务，不走会话输入门禁。
+    #[serde(rename = "extension.update")]
+    ExtensionUpdate,
 
     #[serde(rename = "tool.session_start")]
     ToolSessionStart,
@@ -263,6 +266,7 @@ impl Method {
             | Method::SystemPing
             | Method::SystemStatus
             | Method::BrowserList
+            | Method::ExtensionUpdate
             | Method::TransferBegin
             | Method::TransferChunk
             | Method::TransferFinish
