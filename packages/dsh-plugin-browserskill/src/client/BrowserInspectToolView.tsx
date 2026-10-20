@@ -1,13 +1,8 @@
-// browser_inspect keyed toolview: all inspect actions retain a terminal card;
+// bsk_inspect keyed toolview: all inspect actions retain a terminal card;
 // screenshot results additionally render the image attachment. Pure function
 // of the frozen call/result slice, so live and replay paths stay identical.
 
 import type { ImageAttachmentRef } from "@deepseek-ai/dsh-attachment";
-import {
-  type ImageLoader,
-  MessageImage,
-  type MessageImageLabels,
-} from "@deepseek-ai/dsh-client-ui-attachment";
 import {
   DisclosureRow,
   StateDot,
@@ -17,7 +12,9 @@ import {
 } from "@deepseek-ai/dsh-client-ui-primitives";
 import type { ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import { useState } from "react";
+import toolNames from "../tool-names.json";
 import css from "./BrowserInspectToolView.module.css";
+import { ScreenshotImage } from "./ScreenshotImage";
 
 /** Resolved loader bound to the owning session at registration time. */
 export type BrowserInspectImageLoader = (attachment: ImageAttachmentRef) => Promise<string>;
@@ -37,26 +34,20 @@ interface ViewModel {
   readonly title: string;
 }
 
-const TERMINAL_LABELS: Partial<TerminalBlockLabels> = {
+const TERMINAL_LABELS: TerminalBlockLabels & { noExitCode: string } = {
+  signal: (signal) => `Signal ${signal}`,
+  exitCode: (exitCode) => `Exit code ${exitCode}`,
   running: "Running",
   failed: "Failed",
   done: "Done",
   copy: "Copy",
   copied: "Copied",
   noOutput: "No output",
+  noExitCode: "No exit code",
   collapseAria: "Collapse output",
   collapse: "Collapse",
   expandAria: (hidden) => `Expand the remaining ${hidden} output lines`,
   expand: (hidden) => `… ${hidden} more lines`,
-};
-
-const IMAGE_LABELS: MessageImageLabels = {
-  image: "screenshot",
-  open: "Open the original screenshot",
-  openNamed: (label) => `Open screenshot ${label}`,
-  loading: "Loading…",
-  loadFailed: "Load failed — retry",
-  lightbox: { dialog: "Screenshot preview", close: "Close preview" },
 };
 
 function firstLine(text: string): string {
@@ -130,7 +121,9 @@ function commandOf(argsRaw: string, callId: string): { command: string; title: s
     // Streaming can expose a truncated JSON prefix; it is still the best label.
     return {
       command:
-        argsRaw === "" ? `browser_inspect (${callId})` : `browser_inspect ${firstLine(argsRaw)}`,
+        argsRaw === ""
+          ? `${toolNames.inspect} (${callId})`
+          : `${toolNames.inspect} ${firstLine(argsRaw)}`,
       title: "Inspect",
     };
   }
@@ -139,7 +132,8 @@ function commandOf(argsRaw: string, callId: string): { command: string; title: s
 /** Derive the display model from the frozen block only. */
 export function viewModelOf(block: ToolCallViewProps["block"]): ViewModel {
   const settled = "kind" in block;
-  const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? "";
+  // DSH 0.2 can render a preparing call before arguments have been dispatched.
+  const argsRaw = (settled ? block.call?.argsRaw : "argsRaw" in block ? block.argsRaw : "") ?? "";
   const { command, title } = commandOf(argsRaw, block.callId);
   if (!settled) {
     return { state: "running", command, output: null, image: null, summary: command, title };
@@ -166,7 +160,7 @@ function dotState(state: ViewState): StateDotState {
 }
 
 /**
- * Render one browser_inspect call: a disclosure row over a terminal block,
+ * Render one bsk_inspect call: a disclosure row over a terminal block,
  * plus the screenshot image when that action returns an image attachment.
  */
 export function BrowserInspectToolView({
@@ -180,7 +174,7 @@ export function BrowserInspectToolView({
   const expandable = model.state === "running" || model.output !== null || model.image !== null;
   const open = expanded && expandable;
   return (
-    <div className={css.card} data-tool="browser_inspect" data-state={model.state}>
+    <div className={css.card} data-tool={toolNames.inspect} data-state={model.state}>
       <DisclosureRow
         icon={<StateDot state={dotState(model.state)} />}
         title={model.title}
@@ -201,11 +195,10 @@ export function BrowserInspectToolView({
           />
           {model.image !== null ? (
             <div className={css["image-wrap"]}>
-              <MessageImage
+              <ScreenshotImage
+                key={model.image.attachmentId}
                 attachment={model.image}
                 load={loadImage}
-                variant="single"
-                labels={IMAGE_LABELS}
               />
             </div>
           ) : null}

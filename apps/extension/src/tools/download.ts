@@ -3,16 +3,24 @@
 
 import type { SessionManager } from "@/session-manager/manager";
 import type { DownloadParams, DownloadResult, RpcError } from "@/transport/types";
-import { captureBrowserDownload, chromeDownloadsApi, type DownloadsApi } from "./download-capture";
+import {
+  captureBrowserDownload,
+  chromeDownloadsApi,
+  chromeNavigationTargetsApi,
+  type DownloadsApi,
+  type NavigationTargetsApi,
+} from "./download-capture";
+import { downloadTriggerDeps } from "./download-trigger";
 import { clickResolvedTarget, type InteractionDeps, resolveActionTarget } from "./interaction";
 import { enforceAgentWindow, isRpcError, lookupSession, resolveTargetTab } from "./shared";
 
 let downloadActive = false;
 
-export type { DownloadsApi } from "./download-capture";
+export type { DownloadsApi, NavigationTargetsApi } from "./download-capture";
 
 export interface DownloadDeps extends InteractionDeps {
   downloads?: DownloadsApi;
+  navigationTargets?: NavigationTargetsApi;
 }
 
 export async function handleDownload(
@@ -35,16 +43,22 @@ export async function handleDownload(
     const address = await resolveActionTarget(deps.cdp, ctx, target, params, "download");
     if (isRpcError(address)) return address;
 
+    let trigger: ReturnType<typeof downloadTriggerDeps> | undefined;
     const capture = await captureBrowserDownload({
       cdp: deps.cdp,
       target: address.cdpTarget,
       downloads: deps.downloads ?? chromeDownloadsApi,
+      navigationTargets: deps.navigationTargets ?? chromeNavigationTargetsApi,
       browserRelativeDir: params.browser_relative_dir,
       maxByteSize: params.max_byte_size,
       timeoutMs: params.timeout_ms ?? 120_000,
       signal: deps.signal,
       expectedFrameId: address.frameId,
-      trigger: () => clickResolvedTarget(ctx, address, {}, deps),
+      trigger: (markDispatched, signal) => {
+        trigger = downloadTriggerDeps(deps, signal);
+        return clickResolvedTarget(ctx, address, {}, trigger.deps, markDispatched);
+      },
+      cleanupTrigger: (deadline) => trigger?.cleanup(deadline) ?? Promise.resolve(),
     });
     if (isRpcError(capture)) return capture;
     const { click, item } = capture;

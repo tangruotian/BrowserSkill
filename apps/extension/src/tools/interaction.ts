@@ -35,6 +35,7 @@ import type {
   SelectParams,
   SelectResult,
 } from "@/transport/types";
+import { type ClickOverlayDeps, withClickOverlay } from "./click-overlay";
 import { attachDialogs, markDialogCursor } from "./dialogs";
 import { backendNodeToObject } from "./element-geometry";
 import { rpcError } from "./errors";
@@ -52,14 +53,11 @@ import {
 } from "./shared";
 import { resolveSnapshotRef } from "./snapshot-ref";
 
-export interface InteractionDeps {
-  cdp: CdpRunner;
+export interface InteractionDeps extends ClickOverlayDeps {
+  /** Arm short popup observation immediately before native input dispatch. */
+  onInputSent?: (tabId: number) => void;
   tabsApi: ChromeTabsApi;
-  /** Abort hook (full chain wired in M10.2). */
-  signal?: AbortSignal;
   defaultTimeoutMs?: number;
-  /** Temporarily disable overlay click blocker during CDP automation. */
-  bypassOverlay?: (tabId: number, enabled: boolean) => Promise<void>;
   /** Keep hover hit-testing active for the caller's next observation/action. */
   keepOverlayBypassAfterHover?: boolean;
 }
@@ -512,39 +510,13 @@ export async function clickResolvedTarget(
   }
 
   const clickCount = params.click_count ?? 1;
-  if (clickCount < 1) {
-    return { code: "invalid_params", message: "click_count must be greater than zero" };
+  if (!Number.isSafeInteger(clickCount) || clickCount < 1) {
+    return { code: "invalid_params", message: "click_count must be a positive integer" };
   }
-  const overlayBlocking = await checkOverlayAtPoint(deps.cdp, target.tabId, centre.x, centre.y);
-  let automationBypassEnabled = false;
-  if (overlayBlocking && deps.bypassOverlay) {
-    try {
-      await deps.bypassOverlay(target.tabId, true);
-      automationBypassEnabled = true;
-    } catch (err) {
-      console.debug("[bsk interaction] overlay bypass enable failed", err);
-    }
-  }
-
-  try {
-    const error = await dispatchClickAtPoint(
-      target.tabId,
-      centre,
-      params,
-      deps,
-      undefined,
-      markSent,
-    );
-    if (error) return error;
-  } finally {
-    if (automationBypassEnabled && deps.bypassOverlay && !deps.keepOverlayBypassAfterHover) {
-      try {
-        await deps.bypassOverlay(target.tabId, false);
-      } catch (err) {
-        console.debug("[bsk interaction] overlay bypass disable failed", err);
-      }
-    }
-  }
+  const error = await withClickOverlay(target.tabId, centre, deps, (verifyOverlay) =>
+    dispatchClickAtPoint(target.tabId, centre, params, deps, verifyOverlay, undefined, markSent),
+  );
+  if (error) return error;
 
   return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
     tab_id: target.tabId,
@@ -555,12 +527,13 @@ export async function clickResolvedTarget(
   });
 }
 
-/** Shared mouse lifecycle; visual clicks additionally verify after move and emit full double clicks. */
+/** Shared mouse lifecycle; visual clicks additionally verify their captured target. */
 async function dispatchClickAtPoint(
   tabId: number,
   point: { x: number; y: number },
   params: Pick<ClickParams, "button" | "click_count" | "modifiers">,
   deps: InteractionDeps,
+  verifyOverlay: () => Promise<RpcError | null>,
   beforePress?: () => Promise<RpcError | null>,
   markSent?: () => void,
 ): Promise<RpcError | null> {
@@ -579,7 +552,7 @@ async function dispatchClickAtPoint(
       modifiers,
     });
   const failure = (error: RpcError): RpcError =>
-    beforePress
+    beforePress || error.data?.reason === "input_not_ready"
       ? {
           ...error,
           data: {
@@ -601,15 +574,18 @@ async function dispatchClickAtPoint(
       const error = await beforePress();
       if (error) return failure(error);
     }
-    const counts = beforePress
-      ? Array.from({ length: params.click_count ?? 1 }, (_, i) => i + 1)
-      : [count];
-    for (count of counts) {
+    // clickCount describes this press in a consecutive sequence; it does not
+    // ask Chrome to synthesize the preceding clicks for DOM targets.
+    for (count = 1; count <= (params.click_count ?? 1); count++) {
       if (beforePress && count > 1) {
         const error = await beforePress();
         if (error) return failure(error);
       }
       if (deps.signal?.aborted) return failure({ code: "cancelled", message: "click aborted" });
+      const blocked = await verifyOverlay();
+      if (blocked) return failure(blocked);
+      if (deps.signal?.aborted) return failure({ code: "cancelled", message: "click aborted" });
+      deps.onInputSent?.(tabId);
       markSent?.();
       attempted = true;
       releaseNeeded = true;
@@ -620,6 +596,7 @@ async function dispatchClickAtPoint(
         clickCount: count,
         modifiers,
       });
+      deps.onInputSent?.(tabId);
       await release();
       releaseNeeded = false;
     }
@@ -679,40 +656,42 @@ async function clickVisualPoint(
       return changed();
     return null;
   };
-  let bypass = false;
   try {
     deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
-    if (deps.bypassOverlay) {
-      await deps.bypassOverlay(target.tabId, true);
-      bypass = true;
-    }
-    const invalid = await validate();
-    if (invalid) return { ...invalid, data: { ...invalid.data, effect_state: "none" } };
-    const error = await dispatchClickAtPoint(
+    return await withClickOverlay<ClickResult | RpcError>(
       target.tabId,
       point,
-      params,
       deps,
-      async () => {
-        await wait(32, deps.signal); // Scheduling opportunity, not a claim of page stability.
-        return validate();
+      async (verifyOverlay) => {
+        const invalid = await validate();
+        if (invalid) return { ...invalid, data: { ...invalid.data, effect_state: "none" } };
+        const error = await dispatchClickAtPoint(
+          target.tabId,
+          point,
+          params,
+          deps,
+          verifyOverlay,
+          async () => {
+            await wait(32, deps.signal); // Scheduling opportunity, not a claim of page stability.
+            return validate();
+          },
+          markSent,
+        );
+        if (error) return error;
+        return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
+          tab_id: target.tabId,
+          used_ref: capture.ref,
+          ...point,
+        });
       },
-      markSent,
+      true, // Visual target validation also needs the page blocker bypassed.
     );
-    if (error) return error;
-    return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
-      tab_id: target.tabId,
-      used_ref: capture.ref,
-      ...point,
-    });
   } catch (error) {
     return {
       code: deps.signal?.aborted || isAbortError(error) ? "cancelled" : "cdp_failed",
       message: error instanceof Error ? error.message : String(error),
       data: { effect_state: "none" },
     };
-  } finally {
-    if (bypass) await deps.bypassOverlay!(target.tabId, false).catch(() => {});
   }
 }
 
@@ -820,8 +799,51 @@ interface OverlayHitInspection {
 }
 
 /**
- * Returns true when the control overlay shadow root has a visible layer
- * with pointer-events blocking the click point (mirrors intern execClick).
+ * Page-world hit test for the control overlay. The host itself is the
+ * full-viewport blocker (`:host([data-bsk-overlay-blocking])`), and WXT
+ * mounts it with a closed shadow root, so page JS cannot see the inner
+ * layers. Checking only shadow children therefore missed every real
+ * click. Keep this function self-contained: CDP evals `fn.toString()`.
+ */
+export function inspectOverlayHitAtPoint(x: number, y: number): OverlayHitInspection {
+  const blocks = (node: HTMLElement): boolean => {
+    const style = window.getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return (
+      node.isConnected &&
+      style.display !== "none" &&
+      style.pointerEvents !== "none" &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      x >= rect.x &&
+      x <= rect.x + rect.width &&
+      y >= rect.y &&
+      y <= rect.y + rect.height
+    );
+  };
+  const overlayHost = document.querySelector("[data-bsk-overlay]");
+  if (!(overlayHost instanceof HTMLElement) || !overlayHost.isConnected) {
+    return {
+      overlayHostPresent: !!overlayHost,
+      overlayHostConnected: false,
+      hitIndex: -1,
+    };
+  }
+  if (blocks(overlayHost)) {
+    return { overlayHostPresent: true, overlayHostConnected: true, hitIndex: 0 };
+  }
+  const overlays = Array.from(overlayHost.shadowRoot?.querySelectorAll("*") ?? []);
+  const hitIndex = overlays.findIndex((node) => node instanceof HTMLElement && blocks(node));
+  return {
+    overlayHostPresent: true,
+    overlayHostConnected: true,
+    hitIndex,
+  };
+}
+
+/**
+ * Returns true when the control overlay has a visible layer with
+ * pointer-events blocking the click point.
  */
 async function checkOverlayAtPoint(
   cdp: CdpRunner,
@@ -856,43 +878,7 @@ async function checkOverlayAtPoint(
     const inspection = await cdp.send<{
       result?: { value?: OverlayHitInspection | null };
     }>(tabId, "Runtime.evaluate", {
-      expression: `(function() {
-        const overlayHost = document.querySelector("[data-bsk-overlay]");
-        const shadowRoot = overlayHost instanceof HTMLElement ? overlayHost.shadowRoot : null;
-        const overlays = Array.from(shadowRoot?.querySelectorAll("*") ?? []);
-        const overlayDetails = overlays
-          .map((node) => {
-            if (!(node instanceof HTMLElement)) return null;
-            const style = window.getComputedStyle(node);
-            const rect = node.getBoundingClientRect();
-            return {
-              display: style.display,
-              pointerEvents: style.pointerEvents,
-              connected: node.isConnected,
-              rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-            };
-          })
-          .filter((node) => {
-            if (!node) return false;
-            return (
-              node.connected &&
-              node.display !== "none" &&
-              node.pointerEvents !== "none" &&
-              node.rect.width > 0 &&
-              node.rect.height > 0
-            );
-          });
-        const hitIndex = overlayDetails.findIndex((node) => {
-          const withinX = ${x} >= node.rect.x && ${x} <= node.rect.x + node.rect.width;
-          const withinY = ${y} >= node.rect.y && ${y} <= node.rect.y + node.rect.height;
-          return withinX && withinY;
-        });
-        return {
-          overlayHostPresent: true,
-          overlayHostConnected: true,
-          hitIndex,
-        };
-      })()`,
+      expression: `(${inspectOverlayHitAtPoint.toString()})(${x},${y})`,
       returnByValue: true,
     });
 
@@ -915,8 +901,8 @@ interface DescribedNode {
 }
 
 /**
- * Decide whether a node can receive `tool.fill`: native `<input>` /
- * `<textarea>`, or any element flagged `contenteditable="true"`.
+ * Cheap candidate filter for `tool.fill`. The live preflight also checks
+ * control state and requires a contenteditable target to be an editing host.
  * Exported via `__testing__` for unit coverage.
  */
 function isFillable(node: DescribedNode): boolean {
@@ -982,18 +968,84 @@ const FILL_EDITABLE_FUNCTION = `function() {
   const tag = this.tagName.toLowerCase();
   const supported = tag === 'input'
     ? ['text', 'search', 'tel', 'url', 'email', 'password', 'number'].includes(this.type)
-    : tag === 'textarea' || this.isContentEditable;
+    : tag === 'textarea' || (this.isContentEditable && !this.parentElement?.isContentEditable);
   return this.isConnected && supported && !this.readOnly && !this.matches(':disabled');
 }`;
 
-// Chrome renders a trailing editable newline with an empty <div><br></div>.
-// innerText includes the padding break; it is not an extra typed character.
+// In these modes Chrome types NBSP for spaces at line edges, and whitespace at
+// line edges is source formatting rather than text.
+const FILL_COLLAPSES_WHITESPACE = `['normal', 'nowrap'].includes(getComputedStyle(this).whiteSpace)`;
+
+// Typing produces text nodes, <br>, and direct <div> lines. Read that layout
+// literally: innerText collapses whitespace and counts the <br> that only holds
+// a line open. Other rich structures keep their rendered text. Normalize NBSP
+// only in the read value; never rewrite the user's DOM characters.
 const FILL_VALUE_FUNCTION = `function() {
-  if (!this.isContentEditable) return this.value;
-  const value = this.innerText;
-  const tail = this.lastChild;
-  const padding = tail && tail.nodeName === 'DIV' && tail.childNodes.length === 1 && tail.firstChild.nodeName === 'BR';
-  return padding && value.endsWith('\\n\\n') ? value.slice(0, -1) : value;
+  if (this.matches('input,textarea')) return this.value;
+  const collapses = ${FILL_COLLAPSES_WHITESPACE};
+  const isInline = node => node.nodeType === Node.TEXT_NODE || node.nodeName === 'BR';
+  const isLine = node => node.nodeName === 'DIV' && getComputedStyle(node).display === 'block' &&
+    [...node.childNodes].every(isInline);
+  const nodes = [...this.childNodes];
+  let value;
+  if (nodes.every(node => isInline(node) || isLine(node))) {
+    const lines = [];
+    let open;
+    for (const node of nodes) {
+      if (isLine(node)) {
+        lines.push([...node.childNodes]);
+        open = undefined;
+      } else {
+        if (!open) lines.push(open = []);
+        open.push(node);
+      }
+    }
+    value = lines.flatMap(line => {
+      let text = line.map((node, index) => node.nodeName !== 'BR' ? node.data :
+        index < line.length - 1 ? '\\n' : '').join('');
+      if (collapses) text = text.replace(/^[ \\t\\r\\n]+|[ \\t\\r\\n]+$/g, '');
+      // Without a <br>, an empty line has no height.
+      return text === '' && !line.some(node => node.nodeName === 'BR') ? [] : [text];
+    }).join('\\n');
+  } else {
+    // An editor holding only an empty line, such as <p><br></p>, is empty.
+    const rendered = this.innerText;
+    value = rendered === '\\n' && this.textContent === '' ? '' : rendered;
+  }
+  return collapses ? value.replace(/\\u00a0/g, ' ') : value;
+}`;
+
+// Read-only validation shared by preflight and the final check before clearing.
+// Recompute after focus handlers: the target or its constraints may have changed.
+const FILL_PREPARATION_FUNCTION = `function(value, clearBefore) {
+  const tag = this.tagName.toLowerCase();
+  const native = tag === 'input' || tag === 'textarea';
+  if (!(${FILL_EDITABLE_FUNCTION}).call(this)) return { reason: 'target_not_fillable', error: 'fill requires an enabled text input, textarea, or contenteditable editing host; target the editor root rather than an internal paragraph or span' };
+  const before = clearBefore ? '' : (${FILL_VALUE_FUNCTION}).call(this);
+  let expected = before + value;
+  if (native) {
+    // Use the browser's own value sanitization (e.g. textarea
+    // line endings) without changing the live control.
+    const normalizer = this.ownerDocument.createElement(tag);
+    if (tag === 'input') {
+      normalizer.type = this.type;
+      normalizer.multiple = this.multiple;
+    }
+    // insertText treats line breaks in a single-line input as spaces.
+    if (tag === 'input') expected = expected.replace(/\\r\\n|\\r|\\n/g, ' ');
+    normalizer.value = expected;
+    if (expected !== '' && normalizer.value === '' && this.type === 'number') {
+      return { reason: 'fill_value_invalid', error: 'fill value is not valid for a number input' };
+    }
+    expected = normalizer.value;
+    if (this.type !== 'number' && this.maxLength >= 0 && expected.length > this.maxLength) {
+      return { reason: 'fill_value_invalid', error: 'fill value exceeds the target maxlength' };
+    }
+  } else {
+    expected = expected.replace(/\\r\\n?/g, '\\n');
+    if (${FILL_COLLAPSES_WHITESPACE}) expected = expected.replace(/\\u00a0/g, ' ');
+  }
+  return { before, expected };
 }`;
 
 export async function handleFill(
@@ -1019,6 +1071,7 @@ export async function handleFill(
   const node = await resolveBackendNode(deps.cdp, ctx, target, params, "fill");
   if (isRpcError(node)) return node;
   const nodeCdp = cdpRunnerForTarget(deps.cdp, node.cdpTarget);
+  let native = false;
 
   try {
     deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
@@ -1029,23 +1082,13 @@ export async function handleFill(
         backendNodeId: node.backendNodeId,
       },
     );
+    native = ["INPUT", "TEXTAREA"].includes(described.node?.nodeName?.toUpperCase() ?? "");
     if (!described.node || !isFillable(described.node)) {
       return rpcError(
         "invalid_params",
         "target_not_fillable",
-        `element ${described.node?.nodeName ?? "?"} not fillable (need input/textarea/contenteditable)`,
+        `element ${described.node?.nodeName ?? "?"} not fillable; choose a text input, textarea, or the contenteditable editor root`,
       );
-    }
-    const scrollErr = await scrollElementAndFramesIntoView(
-      deps.cdp,
-      target.tabId,
-      node.cdpTarget,
-      node.backendNodeId,
-      node.frameId,
-    );
-    if (scrollErr) return scrollErr;
-    if (throwIfAborted(deps.signal)) {
-      return { code: "cancelled", message: "fill aborted" };
     }
   } catch (err) {
     return fillError("fill_failed", err instanceof Error ? err.message : String(err));
@@ -1061,6 +1104,36 @@ export async function handleFill(
   const clearBefore = params.clear_before ?? true;
 
   try {
+    if (throwIfAborted(deps.signal)) {
+      return { code: "cancelled", message: "fill aborted" };
+    }
+    const preflight = await nodeCdp.send<FillScriptReply<FillPreparation>>(
+      target.tabId,
+      "Runtime.callFunctionOn",
+      {
+        objectId,
+        functionDeclaration: FILL_PREPARATION_FUNCTION,
+        arguments: [{ value: params.value }, { value: clearBefore }],
+        returnByValue: true,
+      },
+    );
+    if (throwIfAborted(deps.signal)) return { code: "cancelled", message: "fill aborted" };
+    if (preflight.exceptionDetails || !preflight.result?.value) {
+      return fillError("fill_failed", "fill preflight script failed");
+    }
+    const plan = preflight.result.value;
+    if ("error" in plan) return fillError(plan.reason, plan.error);
+    if (typeof plan.before !== "string" || typeof plan.expected !== "string") {
+      return fillError("fill_failed", "fill preflight returned an unexpected result");
+    }
+    const scrollErr = await scrollElementAndFramesIntoView(
+      deps.cdp,
+      target.tabId,
+      node.cdpTarget,
+      node.backendNodeId,
+      node.frameId,
+    );
+    if (scrollErr) return scrollErr;
     if (throwIfAborted(deps.signal)) {
       return { code: "cancelled", message: "fill aborted" };
     }
@@ -1097,35 +1170,12 @@ export async function handleFill(
       {
         objectId,
         functionDeclaration: `function(value, clearBefore) {
-          const tag = this.tagName.toLowerCase();
-          const native = tag === 'input' || tag === 'textarea';
-          if (!(${FILL_EDITABLE_FUNCTION}).call(this)) return { reason: 'target_not_fillable', error: 'fill target is not editable or its input type is unsupported' };
+          const preparation = (${FILL_PREPARATION_FUNCTION}).call(this, value, clearBefore);
+          if ('error' in preparation) return preparation;
           if (this.getRootNode().activeElement !== this) return { reason: 'fill_focus_lost', error: 'fill target does not have focus' };
-          const before = clearBefore ? '' : (${FILL_VALUE_FUNCTION}).call(this);
-          let expected = before + value;
-          if (native) {
-            // Use the browser's own value sanitization (e.g. textarea
-            // line endings) without changing the live control.
-            const normalizer = this.ownerDocument.createElement(tag);
-            if (tag === 'input') {
-              normalizer.type = this.type;
-              normalizer.multiple = this.multiple;
-            }
-            // insertText treats line breaks in a single-line input as spaces.
-            if (tag === 'input') expected = expected.replace(/\\r\\n|\\r|\\n/g, ' ');
-            normalizer.value = expected;
-            if (expected !== '' && normalizer.value === '' && this.type === 'number') {
-              return { reason: 'fill_value_invalid', error: 'fill value is not valid for a number input' };
-            }
-            expected = normalizer.value;
-            if (this.type !== 'number' && this.maxLength >= 0 && expected.length > this.maxLength) {
-              return { reason: 'fill_value_invalid', error: 'fill value exceeds the target maxlength' };
-            }
-          } else {
-            expected = expected.replace(/\\r\\n?/g, '\\n');
-          }
+          const tag = this.tagName.toLowerCase();
           if (clearBefore) {
-            if (native) {
+            if (tag === 'input' || tag === 'textarea') {
               const proto = tag === 'textarea' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
               Object.getOwnPropertyDescriptor(proto, 'value').set.call(this, '');
             } else {
@@ -1133,7 +1183,7 @@ export async function handleFill(
             }
             this.dispatchEvent(new Event('input', { bubbles: true }));
           }
-          return { before, expected };
+          return preparation;
         }`,
         arguments: [{ value: params.value }, { value: clearBefore }],
         returnByValue: true,
@@ -1155,19 +1205,35 @@ export async function handleFill(
     // A separate call runs after the clearing event's microtasks drain.
     // DOM focus works in background tabs. Use document.hasFocus() only to
     // detect deferred focus events, never to reject background input.
-    const checkReady = async (): Promise<FillReadiness | RpcError> => {
+    const checkReady = async (
+      placeCaret = false,
+      verifyCaret = false,
+    ): Promise<FillReadiness | RpcError> => {
       const reply = await nodeCdp.send<FillScriptReply<FillReadiness>>(
         target.tabId,
         "Runtime.callFunctionOn",
         {
           objectId,
-          functionDeclaration: `function(before) {
+          functionDeclaration: `function(before, placeCaret, verifyCaret) {
             if (!(${FILL_EDITABLE_FUNCTION}).call(this) ||
                 (${FILL_VALUE_FUNCTION}).call(this) !== before) return 'fill_target_changed';
             if (this.getRootNode().activeElement !== this) return 'fill_focus_lost';
+            if (verifyCaret) {
+              const selection = this.ownerDocument.getSelection();
+              if (!selection || !selection.isCollapsed || selection.anchorNode !== this ||
+                  selection.anchorOffset !== this.childNodes.length) return 'fill_focus_lost';
+            }
+            if (placeCaret) {
+              const selection = this.ownerDocument.getSelection();
+              const range = this.ownerDocument.createRange();
+              range.selectNodeContents(this);
+              range.collapse(false);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
             return this.ownerDocument.hasFocus() ? 'ready' : 'background';
           }`,
-          arguments: [{ value: preparation.before }],
+          arguments: [{ value: preparation.before }, { value: placeCaret }, { value: verifyCaret }],
           returnByValue: true,
         },
       );
@@ -1207,15 +1273,14 @@ export async function handleFill(
       return fillError(ready, "fill target changed or lost focus before typing");
     }
     if (params.value !== "" && (!clearBefore || ready === "background")) {
-      // Native editing commands also support number/email inputs, whose
-      // selection APIs cannot set a caret, and multiline contenteditables.
-      // Also do this for background replacement: CDP input focuses the
-      // renderer, delivering deferred focus events before it inserts text.
-      // Use a command-only event so this does not invoke an End shortcut.
+      // Native commands position number/email carets without selection APIs.
+      // For editors, only flush deferred background focus here: the document
+      // end command can escape a nested editing host. Place its range below.
+      // Neither event carries an End key that could invoke a page shortcut.
       try {
         await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", {
           type: "rawKeyDown",
-          commands: ["moveToEndOfDocument"],
+          commands: native ? ["moveToEndOfDocument"] : [],
         });
       } finally {
         await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", { type: "keyUp" });
@@ -1223,11 +1288,17 @@ export async function handleFill(
       if (throwIfAborted(deps.signal)) {
         return { code: "cancelled", message: "fill aborted" };
       }
-      // Focus and key handlers can change the target or move focus too.
-      ready = await checkReady();
-      if (throwIfAborted(deps.signal)) {
-        return { code: "cancelled", message: "fill aborted" };
+    }
+    if (params.value !== "" && (!native || !clearBefore || ready === "background")) {
+      // Recheck after deferred focus handlers, then place the caret only in
+      // this editing host. Empty hosts need no temporary DOM characters.
+      ready = await checkReady(!native);
+      if (throwIfAborted(deps.signal)) return { code: "cancelled", message: "fill aborted" };
+      if (!native && (ready === "ready" || ready === "background")) {
+        // Selection changes can run page handlers after the placement script.
+        ready = await checkReady(false, true);
       }
+      if (throwIfAborted(deps.signal)) return { code: "cancelled", message: "fill aborted" };
       if (typeof ready !== "string") return ready;
       if (ready !== "ready" && ready !== "background") {
         return fillError(ready, "fill target changed or lost focus while positioning the caret");
@@ -1236,7 +1307,11 @@ export async function handleFill(
     // CDP `Input.insertText` handles IME / multi-byte input out of the
     // box, much more reliably than per-key `dispatchKeyEvent`.
     if (params.value !== "") {
-      await deps.cdp.send(target.tabId, "Input.insertText", { text: params.value });
+      // Normalize the actual input as well as the expected value: older Chrome
+      // versions retain CR in editors or turn CRLF into two textarea breaks.
+      await deps.cdp.send(target.tabId, "Input.insertText", {
+        text: params.value.replace(/\r\n?/g, "\n"),
+      });
     }
     if (throwIfAborted(deps.signal)) {
       return { code: "cancelled", message: "fill aborted" };
@@ -1400,6 +1475,13 @@ for (let i = 1; i <= 12; i++) {
 export function resolveKeyDescriptor(key: string): KeyDescriptor | null {
   if (key.length === 0) return null;
   if (SPECIAL_KEYMAP[key]) return SPECIAL_KEYMAP[key];
+  if (key.length > 1) {
+    const lower = key.toLowerCase();
+    for (const [name, descriptor] of Object.entries(SPECIAL_KEYMAP)) {
+      if (name.toLowerCase() === lower) return descriptor;
+    }
+    return null;
+  }
   if (key.length === 1) {
     const ch = key;
     const upper = ch.toUpperCase();
@@ -1523,6 +1605,7 @@ export async function handlePress(
     try {
       let cancelled = false;
       deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+      deps.onInputSent?.(target.tabId);
       input.markSent();
       await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", {
         type: "rawKeyDown",
@@ -1555,6 +1638,7 @@ export async function handlePress(
           cancelled = true;
         }
       }
+      deps.onInputSent?.(target.tabId);
       await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", {
         type: "keyUp",
         key: descriptor.key,
@@ -1694,7 +1778,7 @@ export async function handleSelect(
           ok: true,
           multiple,
           selected_values: selected.map((o) => o.value),
-          selected_labels: selected.map((o) => o.text),
+          selected_labels: selected.map((o) => o.getAttribute('label') || o.text),
         };
       }`,
       arguments: [{ value: params.values }],

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionContext } from "@/session-manager/manager";
+import { RefStore } from "@/session-manager/ref-store";
 import { guardedCdp } from "../document-guard";
 import type { CdpRunner } from "../shared";
-import { RefStore } from "@/session-manager/ref-store";
-import type { SessionContext } from "@/session-manager/manager";
 
 /** 最后一刻输入边界：页面已换文档时必须零 Input 派发，清理命令仍能执行。 */
 describe("document guard", () => {

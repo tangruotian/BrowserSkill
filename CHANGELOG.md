@@ -5,6 +5,194 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
+## [0.3.3] - 2026-10-14
+
+### Changed
+
+- **Breaking — DSH Plugin:** replace `browser_session`, `browser_page`,
+  `browser_inspect`, `browser_interact`, `browser_tabs`, and `browser_assist` with
+  the corresponding `bsk_*` names to coexist with other browser plugins.
+  The tool-name migration leaves actions, arguments, results and the
+  `browser-skill` skill name unchanged.
+  Old tool names are not registered as aliases. Upgrade the CLI and extension
+  to the coordinated 0.3.3 release before upgrading the plugin.
+  Update hardcoded calls and tool policies, restart the host, and reload the skill
+  in existing conversations. See the [migration guide](packages/dsh-plugin-browserskill/README.md#breaking-tool-api-migration-033).
+- CLI releases require verified Windows EV signing before publication. Builds,
+  internal signing and final publication are separate stages. Windows archives
+  contain the verified signed executable, and `version.json` hashes the final archives.
+- External links and manually created tabs that land in a background Agent Window
+  are routed to a normal user window, preserving task popups and human-assistance
+  or recording flows. Pending external tabs are excluded from default tool targeting.
+- English and Chinese privacy policies describe task video capture, the
+  `offscreen` permission, browser-local retention, authorized video exports and
+  deletion. The main READMEs document video recording and the DSH migration.
+
+### Added
+
+- [Task video recording](docs/video-recording.md): opt-in, silent H.264 MP4 capture
+  of one authorized tab through CLI, DSH or extension controls, with preview,
+  export, deletion and recovery of playable partial recordings. Recordings have
+  a 10-minute duration limit, a 256 MiB size limit and 24-hour retention.
+- [Structured extraction](docs/structured-extraction.md): discover and export
+  loaded tables and lists as JSON/CSV, retaining column order, page/frame sources,
+  merged-cell metadata and explicit completeness information. DSH bounds rows
+  returned to the model context.
+- [Element condition waits](docs/wait-for-element.md) in the CLI, extension and
+  DSH `bsk_page` tool, with explicit deadlines and recovery guidance.
+- CLI browser-selector errors list connected browsers when no instance matches.
+
+### Fixed
+
+- DSH Plugin: roll back incomplete tool registration, surface activation failures,
+  and retry at skill/session lifecycle boundaries without leaving a partial suite.
+  Include tool schemas in the first `/browser-skill` request, and keep failure and
+  recovery notices synchronized with model skill results
+  ([#444](https://github.com/Tencent/BrowserSkill/issues/444)).
+- Extension: input to a background Agent Window tab no longer keeps failing with
+  `input_not_ready` after Chrome drops the session's focus override without a detach
+  ([#355](https://github.com/Tencent/BrowserSkill/issues/355)). The session's
+  background-execution lease resends the override and waits for a rendered frame; the
+  input is sent only once the page reports `visible`, and otherwise still fails before
+  dispatch.
+- Fill editable controls and editor paragraphs through their editing host while
+  preserving the target paragraph's scope; reject noneditable targets and use a
+  consistent line model for reading editor text.
+- Downloads detect when the browser ignores the requested transfer directory and
+  validate the final path before importing a file.
+- Element waits enforce state and deadline contracts, treat absent elements as
+  hidden, and retry selectors after stale-node lookups.
+- Structured extraction preserves DOM values and bounded partial results, keeps
+  split grid rows together, and respects nested row ownership and frame visibility.
+- CLI navigation exits with code 4 when its lifecycle wait times out; DSH retains
+  the created session when start-with-URL navigation times out.
+- Video recording keeps startup cancellable, bounds capture waits, recovers from
+  navigation and transient overlay-discovery failures, prevents control-overlay
+  flashes, and selects an H.264 level appropriate for larger frames.
+- Avoid unnecessary debugger cancellation and incomplete tab cleanup in Yandex;
+  preserve task-popup provenance and recover transient focus changes.
+
+## [0.3.2] - 2026-09-30
+
+### Changed
+
+- DSH Plugin: support DSH `0.2` hosts while retaining compatibility with the
+  `0.1.5-rc.3` SDK.
+- Extension: simplify browser profile controls and explain why profile
+  instructions are unavailable when they cannot be copied.
+- Daemons started with `--foreground` no longer install updates or replace
+  themselves with a detached process. `bsk update` leaves them running
+  (`"daemon": "left_to_host"` in JSON output); restart them in their owning
+  terminal or supervisor after updating.
+- A daemon that cannot write next to its executable reports new releases
+  instead of installing them. Update attempts, stages and errors are recorded
+  in `update-state.json` and shown by `bsk doctor`. Windows `bsk update --json`
+  now reports `"status": "updated"` instead of `"staged"`.
+- Installation and skill guidance document `BSK_AUTO_UPDATE=off`, daemon
+  startup in WorkBuddy and CodeBuddy, and shared-login checks for parallel tasks.
+- English and Chinese privacy policies clarify screenshot exports through
+  `downloads`, human-help notifications, and retention of exported files.
+
+### Fixed
+
+- CLI/Daemon: make updates recoverable across platforms
+  ([#336](https://github.com/Tencent/BrowserSkill/issues/336)). Auto-update
+  verifies the new executable and waits for its daemon to serve the same port
+  before the old daemon exits. If takeover fails or exceeds 20 seconds, the
+  previous executable and service are restored; auto-update retries after 6 hours.
+  Windows replaces the running executable without a detached update script.
+- `bsk update` verifies the replacement before stopping a background daemon,
+  restores the previous version if restart fails, and preserves the actual
+  serving port, including daemons started with `--port 0`. If the host cannot
+  restart the daemon, it is left running (`"daemon": "left_running"`).
+- Serialize updates to the same executable across bsk homes; retain the
+  executable path after rollback on Linux; and recover safely if a daemon
+  stops during auto-update.
+- Daemon: settle pending calls immediately when an extension connection closes
+  or is replaced, preserving unknown-outcome errors for inputs, transfers and
+  tab borrows. `bsk doctor` and `bsk browsers` report connected extensions that
+  have stopped sending heartbeats; closed connections report a disconnect.
+- Protocol: preserve explicit `null` results without silently turning invalid
+  responses into null results, and reject conflicting result/error fields and
+  null error fields.
+- Downloads: capture attachments opened through `target="_blank"` and attribute
+  them to the clicked tab. Correlate downloads with click dispatch, preserve
+  effects that already occurred when a trigger fails, and stop cancelled or
+  expired triggers from dispatching later input or leaving overlays behind.
+- Browser input: dispatch every press in DOM multi-click actions, honor
+  persistent background execution leases, and keep emulation overrides scoped
+  to their session and debugger attachment.
+- Recording: finish recordings after navigation to blob or restricted pages
+  that cannot host the overlay, and clear stale CLI recording state only for
+  the session that owns it.
+- Human help: bound URL regular-expression work and prevent overlapping
+  completion polling so checks cannot block the extension worker.
+- Extension overlays: ignore stale state from earlier generations and worker
+  instances.
+- Website debugging: redact HTML-encoded sensitive input attributes before
+  retaining evidence.
+- DSH Plugin: reconnect failed observation streams, show outages in the
+  observation view and collapsed capsule, and allow new browser sessions after
+  an ancestor session is archived.
+- `bsk doctor` compares installed skills against the CLI's bundled version;
+  skill entry points also fit their size budget on CRLF checkouts.
+
+## [0.3.1] - 2026-09-23
+
+### Added
+
+- [Task-scoped website debugging](docs/website-debugging.md): bounded request/body
+  capture, operation-linked console and page context, browser-local history and JSON export,
+  CLI and DSH entry points, and an extension evidence workspace. Existing popup
+  controls are preserved, with an additive current-task card.
+- Debug operation cards now include manual inputs, field-change chains, delayed
+  evidence, source-aware noise filtering and explicit capture gaps.
+- Website debugging: task-scoped HTTP rules and request replay, native performance
+  metrics, request aggregation and duplicate-request analysis.
+- Remote gateway task previews and attribution of agent-opened popups and tabs
+  to the task that opened them.
+- Browser instance naming in the extension popup and explicit
+  [browser profile selection](docs/browser-profiles.md) across CLI, DSH and skill guidance.
+- Seven additional interface languages: Traditional Chinese, Japanese, French,
+  Italian, Spanish, German and Brazilian Portuguese.
+- CLI and DSH skill reference bundles with resource-path validation, safe upgrades
+  and migration of existing managed installations.
+
+### Changed
+
+- Extension privacy policies now describe website debugging data, browser-local
+  history retention and deletion, requested sharing, and redaction limits.
+- DSH Plugin: align SDK dependencies with `0.1.5-rc.3`, Cordis `4.0.2` and
+  Schemastery `3.18.2`.
+- Reduce repeated observation work by reusing sibling context for repeated action labels.
+- Skill guidance clarifies installation prerequisites, browser readiness, profile
+  selection and the treatment of page content as untrusted data.
+
+### Fixed
+
+- Recoverable browser session startup and stop handling, including pending cleanup
+  and protection of shared daemons after launcher timeouts.
+- Windows daemon startup isolation from caller job objects.
+- Background navigation and viewport/full-page screenshots without activating
+  controlled tabs; full-page capture at fractional DPI and with overlay scrollbars.
+- Bounded renderer and frame reads, preserving usable observations when optional
+  layout reads time out and preventing overlapping reads after a timeout.
+- Keep page actions visible beside nonmodal sidebars and honor accessibility modality.
+- Prevent control overlays from swallowing clicks and clear stale overlays when
+  observed tabs are released.
+- Accept lowercase special keys, match ARIA loading states case-insensitively,
+  return visible option labels from selection, and retain same-URL reloads in recordings.
+- Deliver navigation timeout results before transport expiry and bound human-help cleanup.
+- Enforce remote device capacity across pending connections and preserve active
+  sessions while renaming browser instances.
+- DSH Plugin: settle commands when child processes exit without closing their
+  streams, bound cancellation and output draining, and preserve completed results.
+- DSH Plugin: restore lazy tool registration after plugin reloads and resumed
+  conversations without repeatedly scanning streaming history.
+- DSH Plugin: render screenshot cards independently of host attachment UI components,
+  preserve previews across host rerenders, and keep extreme-aspect-ratio thumbnails usable.
+- Preserve managed skill source links and handle CRLF metadata and incomplete installations.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added

@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  INPUT_PASSTHROUGH,
+  INPUT_PASSTHROUGH_TTL_MS,
+  type InputPassthroughMessage,
+} from "@/lib/input-passthrough-bridge";
 import { SessionManager } from "@/session-manager/manager";
 import type { CdpRunner } from "@/tools/shared";
 import { withInputReady } from "../input-readiness";
@@ -21,7 +26,7 @@ function fakeAgentWindow(ids: number[]) {
     create: vi.fn(async () => {
       const id = ids[i++];
       if (id === undefined) throw new Error("ran out of fake ids");
-      return id;
+      return { windowId: id, initialTabIds: [] };
     }),
     remove: vi.fn(async () => {}),
     ensureActiveTab: vi.fn(async () => 1),
@@ -34,6 +39,7 @@ function makeFakeCdp(
   rendered: () => boolean | Promise<boolean> = () => true,
 ) {
   const sent: Array<{ tabId: number; method: string; params?: object }> = [];
+  const overlayHit = vi.fn(async () => ({ result: { value: "clear" } }));
   const sendImpl = async (tabId: number, method: string, params?: object) => {
     sent.push({ tabId, method, params });
     if (
@@ -42,6 +48,16 @@ function makeFakeCdp(
     )
       return { result: { value: visibility() } };
     if (method === "Page.captureScreenshot") return { data: (await rendered()) ? "pixel" : "" };
+    if (
+      method === "Runtime.evaluate" &&
+      String((params as { expression?: string })?.expression).includes("requestAnimationFrame")
+    )
+      return { result: { value: await rendered() } };
+    if (
+      method === "Runtime.evaluate" &&
+      String((params as { expression?: string })?.expression).includes('return "absent"')
+    )
+      return overlayHit();
     const h = handlers[method];
     if (!h && method === "Accessibility.getPartialAXTree") return { nodes: [] };
     if (!h && method === "Page.getLayoutMetrics") {
@@ -65,7 +81,7 @@ function makeFakeCdp(
     ),
     query: vi.fn(async () => [{ id: 4, windowId: 100, active: true } as chrome.tabs.Tab]),
   };
-  return { cdp, tabsApi, sent };
+  return { cdp, tabsApi, sent, overlayHit };
 }
 
 describe("modifiersBitfield", () => {
@@ -137,7 +153,7 @@ describe("handleClick", () => {
     expect(fake.cdp.send).not.toHaveBeenCalled();
   });
 
-  it("clicks by ref, computes the quad centre, dispatches three mouse events", async () => {
+  it("double-clicks by ref with two consecutive native press/release pairs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
@@ -164,21 +180,59 @@ describe("handleClick", () => {
     expect(res.used_selector).toBeUndefined();
     expect(res.x).toBeCloseTo(60); // (10 + 110) / 2
     expect(res.y).toBeCloseTo(40); // (20 + 60) / 2
-    // 1 scroll + 1 quad query + 3 mouse events = 5 CDP calls.
     const mouse = fake.sent.filter((c) => c.method === "Input.dispatchMouseEvent");
-    expect(mouse).toHaveLength(3);
-    expect(mouse[0].params).toMatchObject({ type: "mouseMoved" });
-    expect(mouse[1].params).toMatchObject({
-      type: "mousePressed",
-      button: "left",
-      clickCount: 2,
-      modifiers: 2 | 8,
+    expect(mouse.map((event) => event.params)).toEqual([
+      { type: "mouseMoved", x: 60, y: 40, modifiers: 2 | 8 },
+      ...[1, 2].flatMap((clickCount) => [
+        { type: "mousePressed", x: 60, y: 40, button: "left", clickCount, modifiers: 2 | 8 },
+        { type: "mouseReleased", x: 60, y: 40, button: "left", clickCount, modifiers: 2 | 8 },
+      ]),
+    ]);
+  });
+
+  it.each([
+    "cancel",
+    "overlay",
+  ])("stops the second DOM press after %s interrupts the first", async (reason) => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e3", 1234, { tabId: 4 });
+    const controller = new AbortController();
+    let released = false;
+    const fake = makeFakeCdp({
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
+      "Runtime.evaluate": () => ({
+        result: { value: released && reason === "overlay" ? "covered" : "absent" },
+      }),
+      "Input.dispatchMouseEvent": (params) => {
+        if ((params as { type?: string })?.type === "mouseReleased") {
+          released = true;
+          if (reason === "cancel") controller.abort();
+        }
+        return {};
+      },
     });
-    expect(mouse[2].params).toMatchObject({
-      type: "mouseReleased",
-      button: "left",
-      clickCount: 2,
-    });
+    fake.overlayHit.mockImplementation(async () => ({
+      result: { value: released && reason === "overlay" ? "covered" : "absent" },
+    }));
+    const result = await handleClick(
+      sm,
+      { session_id: "aa11", ref: "e3", click_count: 2 },
+      {
+        cdp: fake.cdp,
+        tabsApi: fake.tabsApi,
+        signal: controller.signal,
+      },
+    );
+    expect(result).toMatchObject({ code: reason === "cancel" ? "cancelled" : "cdp_failed" });
+    expect(
+      fake.sent.filter((c) => c.method === "Input.dispatchMouseEvent").map((c) => c.params),
+    ).toMatchObject([
+      { type: "mouseMoved" },
+      { type: "mousePressed", clickCount: 1 },
+      { type: "mouseReleased", clickCount: 1 },
+    ]);
   });
 
   it("resolves frame refs in their CDP session and dispatches input in top coordinates", async () => {
@@ -241,10 +295,41 @@ describe("handleClick", () => {
     expect(fake.sent.filter((call) => call.method === "Input.dispatchMouseEvent")).toHaveLength(3);
   });
 
-  it("enables overlay bypass before mouse events when overlay blocks the click point", async () => {
+  it.each([
+    "clear",
+    "absent",
+    "bypass-only",
+    "covered",
+    "press-fails",
+    "cancel-after-move",
+    "cancel-during-begin",
+    "still-covered",
+    "begin-fails",
+    "lost-ack",
+    "restore-fails",
+    "probe-throws",
+    "probe-invalid",
+    "verify-throws",
+    "late-covered",
+    "late-unknown",
+    "known-late-unknown",
+  ])("scopes click passthrough without changing a retained hover bypass: %s", async (mode) => {
     const order: string[] = [];
-    const bypassOverlay = vi.fn(async (_tabId: number, enabled: boolean) => {
-      order.push(enabled ? "bypass-on" : "bypass-off");
+    const controller = new AbortController();
+    let bypassCount = 1; // A hover owns this reference throughout the click helper.
+    const bypassOverlay = vi.fn(async (_tab: number, enabled: boolean) => {
+      order.push(enabled ? "bypass-begin" : "bypass-end");
+      bypassCount += enabled ? 1 : -1;
+    });
+    let passthrough = false;
+    const sendInputPassthrough = vi.fn(async (_tab: number, message: InputPassthroughMessage) => {
+      order.push(message.phase);
+      if (message.phase === "begin" && mode === "begin-fails") throw new Error("No receiver");
+      passthrough = message.phase === "begin";
+      if (passthrough && mode === "cancel-during-begin") controller.abort();
+      if (passthrough && mode === "lost-ack") throw new Error("Response lost after application");
+      if (!passthrough && mode === "restore-fails") throw new Error("Tab closed");
+      return { type: INPUT_PASSTHROUGH, ok: true };
     });
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");
@@ -252,99 +337,205 @@ describe("handleClick", () => {
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
       "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
-      "Runtime.evaluate": (params: unknown) => {
-        const expr = String((params as { expression?: string })?.expression ?? "");
-        if (expr.includes("overlayHostPresent") && !expr.includes("hitIndex")) {
-          return { result: { value: { overlayHostPresent: true, overlayHostConnected: true } } };
-        }
-        if (expr.includes("hitIndex")) {
-          return {
-            result: {
-              value: { overlayHostPresent: true, overlayHostConnected: true, hitIndex: 0 },
-            },
-          };
-        }
-        throw new Error(`unexpected Runtime.evaluate: ${expr.slice(0, 80)}`);
-      },
-      "Input.dispatchMouseEvent": () => {
-        order.push("mouse");
+      "Input.dispatchMouseEvent": (params) => {
+        const { type } = params as { type: string };
+        order.push(type);
+        if (type === "mouseMoved" && mode === "cancel-after-move") controller.abort();
+        if (type === "mousePressed" && mode === "press-fails") throw new Error("Input failed");
         return {};
       },
     });
-    const res = await handleClick(
+    const initiallyClear = [
+      "clear",
+      "absent",
+      "probe-throws",
+      "probe-invalid",
+      "late-covered",
+      "late-unknown",
+    ].includes(mode);
+    fake.overlayHit.mockImplementation(async () => {
+      order.push("probe");
+      if (mode === "probe-throws" || (mode === "verify-throws" && passthrough))
+        throw new Error("Renderer unavailable");
+      if (mode === "probe-invalid") return { exceptionDetails: {} } as never;
+      if (order.includes("mouseMoved") && ["late-unknown", "known-late-unknown"].includes(mode))
+        return {} as never;
+      const hit =
+        mode === "absent"
+          ? "absent"
+          : mode === "late-covered" && order.includes("mouseMoved")
+            ? "covered"
+            : mode === "bypass-only" && bypassCount === 2
+              ? "clear"
+              : initiallyClear || (passthrough && mode !== "still-covered")
+                ? "clear"
+                : "covered";
+      return { result: { value: hit } };
+    });
+    const result = await handleClick(
       sm,
       { session_id: "aa11", ref: "@e3" },
-      { cdp: fake.cdp, tabsApi: fake.tabsApi, bypassOverlay },
+      {
+        ...fake,
+        sendInputPassthrough,
+        bypassOverlay,
+        signal: controller.signal,
+      },
     );
-    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
-    expect(bypassOverlay).toHaveBeenCalledWith(4, true);
-    expect(bypassOverlay).toHaveBeenCalledWith(4, false);
-    expect(order.indexOf("bypass-on")).toBeLessThan(order.indexOf("mouse"));
-    expect(order.lastIndexOf("bypass-off")).toBeGreaterThan(order.lastIndexOf("mouse"));
+    const beforeMoveFailure = [
+      "still-covered",
+      "begin-fails",
+      "verify-throws",
+      "cancel-during-begin",
+    ].includes(mode);
+    const noPress =
+      beforeMoveFailure ||
+      ["cancel-after-move", "late-covered", "known-late-unknown"].includes(mode);
+    const mouse = order.filter((step) => step.startsWith("mouse"));
+    expect(mouse).toEqual(
+      beforeMoveFailure
+        ? []
+        : noPress
+          ? ["mouseMoved"]
+          : ["mouseMoved", "mousePressed", "mouseReleased"],
+    );
+    if (noPress || mode === "press-fails") {
+      expect(result).toHaveProperty(
+        "code",
+        mode.startsWith("cancel-") ? "cancelled" : "cdp_failed",
+      );
+      if (
+        [
+          "still-covered",
+          "begin-fails",
+          "verify-throws",
+          "late-covered",
+          "known-late-unknown",
+        ].includes(mode)
+      )
+        expect(result).toMatchObject({
+          data: {
+            reason: "input_not_ready",
+            effect_state: "none",
+            pointer_moved: ["late-covered", "known-late-unknown"].includes(mode),
+          },
+        });
+    } else expect(result).toMatchObject({ tab_id: 4, used_ref: "e3", x: 60, y: 40 });
+    if (initiallyClear || mode === "bypass-only") {
+      expect(sendInputPassthrough).not.toHaveBeenCalled();
+    } else {
+      const messages = sendInputPassthrough.mock.calls.map(([, message]) => message);
+      expect(messages).toEqual([
+        { type: INPUT_PASSTHROUGH, phase: "begin", id: expect.any(String) },
+        { type: INPUT_PASSTHROUGH, phase: "end", id: messages[0].id },
+      ]);
+      if (mouse.length) expect(order.indexOf("begin")).toBeLessThan(order.indexOf("mouseMoved"));
+      if (mouse.includes("mouseReleased"))
+        expect(order.indexOf("end")).toBeGreaterThan(order.indexOf("mouseReleased"));
+      expect(order.slice(-2)).toEqual(["end", "bypass-end"]);
+    }
+    if (mode === "clear" || mode === "absent")
+      expect(order).toEqual(["probe", "mouseMoved", "probe", "mousePressed", "mouseReleased"]);
+    if (mode === "covered")
+      expect(order).toEqual([
+        "probe",
+        "bypass-begin",
+        "probe",
+        "begin",
+        "probe",
+        "mouseMoved",
+        "probe",
+        "mousePressed",
+        "mouseReleased",
+        "end",
+        "bypass-end",
+      ]);
+    expect(bypassCount).toBe(1);
+    if (initiallyClear) expect(bypassOverlay).not.toHaveBeenCalled();
+    else
+      expect(bypassOverlay.mock.calls).toEqual([
+        [4, true],
+        [4, false],
+      ]);
   });
 
-  it("disables overlay bypass when mouse dispatch throws", async () => {
-    const bypassOverlay = vi.fn().mockResolvedValue(undefined);
-    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
-    ctx.refStore.set("e3", 1234, { tabId: 4 });
-    let mouseCalls = 0;
-    const fake = makeFakeCdp({
-      "DOM.scrollIntoViewIfNeeded": () => ({}),
-      "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
-      "Runtime.evaluate": (params: unknown) => {
-        const expr = String((params as { expression?: string })?.expression ?? "");
-        if (expr.includes("overlayHostPresent") && !expr.includes("hitIndex")) {
-          return { result: { value: { overlayHostPresent: true, overlayHostConnected: true } } };
-        }
-        if (expr.includes("hitIndex")) {
-          return {
-            result: {
-              value: { overlayHostPresent: true, overlayHostConnected: true, hitIndex: 0 },
-            },
-          };
-        }
-        throw new Error(`unexpected Runtime.evaluate: ${expr.slice(0, 80)}`);
-      },
-      "Input.dispatchMouseEvent": () => {
-        mouseCalls += 1;
-        if (mouseCalls === 2) throw new Error("mousePressed failed");
-        return {};
-      },
-    });
-    const res = await handleClick(
-      sm,
-      { session_id: "aa11", ref: "@e3" },
-      { cdp: fake.cdp, tabsApi: fake.tabsApi, bypassOverlay },
-    );
-    expect(res).toMatchObject({ code: "cdp_failed" });
-    expect(bypassOverlay).toHaveBeenCalledWith(4, true);
-    expect(bypassOverlay).toHaveBeenCalledWith(4, false);
-  });
-
-  it("skips overlay bypass when overlay does not block the click point", async () => {
-    const bypassOverlay = vi.fn().mockResolvedValue(undefined);
-    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
-    ctx.refStore.set("e3", 1234, { tabId: 4 });
-    const fake = makeFakeCdp({
-      "DOM.scrollIntoViewIfNeeded": () => ({}),
-      "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
-      "Runtime.evaluate": (params: unknown) => {
-        const expr = String((params as { expression?: string })?.expression ?? "");
-        if (expr.includes("overlayHostPresent") && !expr.includes("hitIndex")) {
-          return { result: { value: { overlayHostPresent: false, overlayHostConnected: false } } };
-        }
-        throw new Error(`unexpected Runtime.evaluate: ${expr.slice(0, 80)}`);
-      },
-      "Input.dispatchMouseEvent": () => ({}),
-    });
-    await handleClick(
-      sm,
-      { session_id: "aa11", ref: "@e3" },
-      { cdp: fake.cdp, tabsApi: fake.tabsApi, bypassOverlay },
-    );
-    expect(bypassOverlay).not.toHaveBeenCalled();
+  it.each([
+    ["begin", INPUT_PASSTHROUGH_TTL_MS],
+    ["move", INPUT_PASSTHROUGH_TTL_MS],
+    ["press", INPUT_PASSTHROUGH_TTL_MS],
+    ["release", INPUT_PASSTHROUGH_TTL_MS],
+    ["clear-slow", INPUT_PASSTHROUGH_TTL_MS],
+    ["begin", 4_000],
+    ["move", 4_000],
+    ["probe", 4_000],
+    ["move", 3_999],
+    ["press", 4_500],
+    ["release", 4_500],
+  ] as const)("handles %s delayed by %i ms without retrying input", async (phase, elapsed) => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+      const ctx = await manager.start("expiry");
+      ctx.refStore.set("e1", 100, { tabId: 4 });
+      const mouse: string[] = [];
+      let passthrough = false;
+      const sendInputPassthrough = vi.fn(async (_tab: number, message: InputPassthroughMessage) => {
+        passthrough = message.phase === "begin";
+        if (passthrough && phase === "begin") now += elapsed;
+      });
+      const bypassOverlay = vi.fn(async () => {});
+      const fake = makeFakeCdp({
+        "DOM.scrollIntoViewIfNeeded": () => ({}),
+        "DOM.getContentQuads": () => ({ quads: [[0, 0, 40, 0, 40, 20, 0, 20]] }),
+        "Input.dispatchMouseEvent": (params) => {
+          const type = (params as { type: string }).type;
+          mouse.push(type);
+          if (
+            (phase === "move" && type === "mouseMoved") ||
+            (["press", "clear-slow"].includes(phase) && type === "mousePressed") ||
+            (phase === "release" && type === "mouseReleased")
+          )
+            now += elapsed;
+          return {};
+        },
+      });
+      // Another concurrent lease may keep the point clear after ours has expired.
+      fake.overlayHit.mockImplementation(async () => {
+        if (phase === "probe" && mouse.length > 0) now += elapsed;
+        return { result: { value: passthrough || phase === "clear-slow" ? "clear" : "covered" } };
+      });
+      const result = await handleClick(
+        manager,
+        { session_id: "expiry", ref: "e1" },
+        { ...fake, bypassOverlay, sendInputPassthrough },
+      );
+      const blockedBeforePress = ["begin", "move", "probe"].includes(phase) && elapsed >= 4_000;
+      if (phase === "clear-slow" || (!blockedBeforePress && elapsed < INPUT_PASSTHROUGH_TTL_MS)) {
+        expect(result).not.toHaveProperty("code");
+      } else {
+        expect(result).toMatchObject({
+          data: {
+            reason: blockedBeforePress ? "input_not_ready" : "input_outcome_unknown",
+            effect_state: blockedBeforePress ? "none" : "unknown",
+          },
+        });
+      }
+      if (phase === "clear-slow") expect(sendInputPassthrough).not.toHaveBeenCalled();
+      else {
+        expect(sendInputPassthrough.mock.calls.map(([, m]) => m.phase)).toEqual(["begin", "end"]);
+        expect(bypassOverlay.mock.calls).toHaveLength(2);
+      }
+      expect(mouse).toEqual(
+        blockedBeforePress && phase === "begin"
+          ? []
+          : blockedBeforePress
+            ? ["mouseMoved"]
+            : ["mouseMoved", "mousePressed", "mouseReleased"],
+      );
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("leaves disabled click behavior to the browser without an AX preflight", async () => {
@@ -385,7 +576,7 @@ describe("handleClick", () => {
 
     expect(res).toMatchObject({
       code: "invalid_params",
-      message: "click_count must be greater than zero",
+      message: "click_count must be a positive integer",
       data: { effect_state: "none" },
     });
     expect(res).not.toHaveProperty("data.reason");
@@ -546,6 +737,8 @@ describe("click input readiness", () => {
       rendered?: () => boolean | Promise<boolean>;
       defaultTimeoutMs?: number;
       onCommand?: (method: string, params: Record<string, unknown>) => void;
+      ownsBackgroundExecution?: boolean;
+      restoreBackgroundExecution?: () => void | Promise<void>;
     } = {},
   ) {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
@@ -568,6 +761,16 @@ describe("click input readiness", () => {
     );
     let attachmentId: string | undefined = "original";
     fake.cdp.getAttachmentId = () => attachmentId;
+    if (options.ownsBackgroundExecution !== undefined) {
+      fake.cdp.ownsBackgroundExecution = vi.fn(() => options.ownsBackgroundExecution as boolean);
+    }
+    const restore = options.restoreBackgroundExecution;
+    if (restore) {
+      fake.cdp.restoreBackgroundExecution = vi.fn(async () => {
+        fake.sent.push({ tabId: 4, method: "restoreBackgroundExecution" });
+        await restore();
+      });
+    }
     return {
       ...fake,
       ctx,
@@ -597,6 +800,133 @@ describe("click input readiness", () => {
     expect(await f.click()).not.toHaveProperty("code");
     expect(f.focusCommands()).toEqual([]);
     expect(f.mouseCommands()).toHaveLength(3);
+  });
+
+  it("samples visibility without changing an existing persistent background lease", async () => {
+    const f = await fixture({
+      ownsBackgroundExecution: true,
+      visibility: () => "visible",
+    });
+    expect(await f.click()).not.toHaveProperty("code");
+    expect(f.cdp.ownsBackgroundExecution).toHaveBeenCalledWith("aa11", 4);
+    expect(
+      f.sent.some(
+        (c) =>
+          c.method === "Runtime.evaluate" &&
+          (c.params as { expression?: string }).expression === "document.visibilityState",
+      ),
+    ).toBe(true);
+    expect(f.focusCommands()).toEqual([]);
+    expect(f.sent.some((c) => c.method === "Page.captureScreenshot")).toBe(false);
+    expect(f.mouseCommands()).toHaveLength(3);
+  });
+
+  it("rejects hidden leased input before dispatch without toggling its focus override", async () => {
+    const f = await fixture({ ownsBackgroundExecution: true, visibility: () => "hidden" });
+    expect(await f.click()).toMatchObject({
+      code: "cdp_failed",
+      data: { reason: "input_not_ready", effect_state: "none" },
+    });
+    expect(f.focusCommands()).toEqual([]);
+    expect(f.sent.some((c) => c.method === "Page.captureScreenshot")).toBe(false);
+    expect(f.mouseCommands()).toEqual([]);
+  });
+
+  it("restores a hidden leased target through its owner and waits for a frame", async () => {
+    let visibility = "hidden";
+    const f = await fixture({
+      ownsBackgroundExecution: true,
+      visibility: () => visibility,
+      restoreBackgroundExecution: () => {
+        visibility = "visible";
+      },
+    });
+    expect(await f.click()).not.toHaveProperty("code");
+    expect(f.cdp.restoreBackgroundExecution).toHaveBeenCalledWith("aa11", 4);
+    expect(f.focusCommands()).toEqual([]);
+    const expression = (c: { params?: object }) =>
+      String((c.params as { expression?: string } | undefined)?.expression);
+    const steps = f.sent.map((c) =>
+      c.method === "Runtime.evaluate" && expression(c) === "document.visibilityState"
+        ? "visibility"
+        : c.method === "Runtime.evaluate" && expression(c).includes("requestAnimationFrame")
+          ? "frames"
+          : c.method,
+    );
+    const restored = steps.indexOf("restoreBackgroundExecution");
+    expect(steps.slice(0, restored)).toEqual(["visibility"]);
+    expect(steps.slice(restored, restored + 3)).toEqual([
+      "restoreBackgroundExecution",
+      "visibility",
+      "frames",
+    ]);
+    expect(steps.indexOf("Input.dispatchMouseEvent")).toBeGreaterThan(restored + 2);
+    expect(steps).not.toContain("Page.captureScreenshot");
+    expect(steps).not.toContain("Page.bringToFront");
+    expect(f.mouseCommands()).toHaveLength(3);
+  });
+
+  it.each([
+    ["stays hidden", () => {}, "not visible"],
+    [
+      "fails",
+      () => {
+        throw new Error("resend failed");
+      },
+      "resend failed",
+    ],
+  ])("reports input_not_ready before dispatch when a restored lease %s", async (_case, restore, message) => {
+    const f = await fixture({
+      ownsBackgroundExecution: true,
+      visibility: () => "hidden",
+      restoreBackgroundExecution: restore,
+    });
+    const result = await f.click();
+    expect(result).toMatchObject({
+      code: "cdp_failed",
+      data: { reason: "input_not_ready", effect_state: "none" },
+    });
+    expect((result as { message: string }).message).toContain(message);
+    expect(f.cdp.restoreBackgroundExecution).toHaveBeenCalledOnce();
+    expect(f.focusCommands()).toEqual([]);
+    expect(f.mouseCommands()).toEqual([]);
+  });
+
+  it("reports input_not_ready when a restored lease produces no frame", async () => {
+    let visibility = "hidden";
+    const f = await fixture({
+      ownsBackgroundExecution: true,
+      visibility: () => visibility,
+      rendered: () => false,
+      restoreBackgroundExecution: () => {
+        visibility = "visible";
+      },
+    });
+    const result = await f.click();
+    expect(result).toMatchObject({
+      code: "cdp_failed",
+      data: { reason: "input_not_ready", effect_state: "none" },
+    });
+    expect((result as { message: string }).message).toContain("did not produce a frame");
+    expect(f.focusCommands()).toEqual([]);
+    expect(f.mouseCommands()).toEqual([]);
+  });
+
+  it("cancels a pending lease restore without dispatching input", async () => {
+    const controller = new AbortController();
+    const f = await fixture({
+      ownsBackgroundExecution: true,
+      visibility: () => "hidden",
+      restoreBackgroundExecution: () => {
+        controller.abort();
+        return new Promise<void>(() => {});
+      },
+    });
+    const result = await f.click(controller.signal);
+    expect(result).toMatchObject({ code: "cancelled", data: { effect_state: "none" } });
+    expect(result).not.toHaveProperty("data.reason");
+    expect(f.focusCommands()).toEqual([]);
+    expect(f.mouseCommands()).toEqual([]);
   });
 
   it("wakes even an active-but-hidden page before geometry, then restores after release", async () => {
@@ -1106,12 +1436,11 @@ function successfulFillScript(params: unknown) {
   const args = script.arguments ?? [];
   return {
     result: {
-      value:
-        args.length === 2
-          ? { before: "", expected: args[0].value }
-          : script.functionDeclaration.startsWith("function(expected)")
-            ? { connected: true, matches: true, valueLength: String(args[0].value).length }
-            : "ready",
+      value: script.functionDeclaration.startsWith("function(value, clearBefore")
+        ? { before: "", expected: args[0].value }
+        : script.functionDeclaration.startsWith("function(expected)")
+          ? { connected: true, matches: true, valueLength: String(args[0].value).length }
+          : "ready",
     },
   };
 }
@@ -1136,7 +1465,7 @@ describe("handleFill", () => {
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
-        node: { backendNodeId: 100, nodeName: "DIV", attributes: [] },
+        node: { backendNodeId: 100, nodeName: "BUTTON", attributes: [] },
       }),
     });
     const res = await handleFill(
@@ -1179,7 +1508,7 @@ describe("handleFill", () => {
     expect(insert?.params).toEqual({ text: "hello" });
     // Foreground replacement needs no extra caret-positioning round trip.
     const callFns = fake.sent.filter((c) => c.method === "Runtime.callFunctionOn");
-    expect(callFns).toHaveLength(4);
+    expect(callFns).toHaveLength(5);
   });
 
   it("passes clear_before=false to preparation and verifies the result", async () => {
@@ -1194,8 +1523,10 @@ describe("handleFill", () => {
       "DOM.focus": () => ({}),
       "DOM.resolveNode": () => ({ object: { objectId: "obj-2" } }),
       "Runtime.callFunctionOn": (p) => {
-        const args = (p as { arguments?: Array<{ value: unknown }> }).arguments ?? [];
-        if (args.length === 2) expect(args[1].value).toBe(false);
+        const script = p as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
+        if (script.functionDeclaration.startsWith("function(value, clearBefore")) {
+          expect(script.arguments?.[1].value).toBe(false);
+        }
         return successfulFillScript(p);
       },
       "Input.dispatchKeyEvent": () => ({}),
@@ -1281,6 +1612,9 @@ describe("handleFill", () => {
         return {};
       },
       "DOM.focus": () => ({}),
+      "DOM.resolveNode": () => ({ object: { objectId: "fill-target" } }),
+      "Runtime.callFunctionOn": successfulFillScript,
+      "Runtime.releaseObject": () => ({}),
     });
 
     const res = await handleFill(
@@ -1337,6 +1671,12 @@ describe("resolveKeyDescriptor", () => {
   });
   it("returns null for unknown keys", () => {
     expect(resolveKeyDescriptor("UnknownKey")).toBeNull();
+  });
+  it("maps special keys without requiring CDP casing", () => {
+    expect(resolveKeyDescriptor("enter")).toEqual(resolveKeyDescriptor("Enter"));
+    expect(resolveKeyDescriptor("ESCAPE")).toEqual(resolveKeyDescriptor("Escape"));
+    expect(resolveKeyDescriptor("arrowdown")).toMatchObject({ code: "ArrowDown" });
+    expect(resolveKeyDescriptor("space")).toMatchObject({ key: " ", code: "Space" });
   });
 });
 
@@ -1495,6 +1835,21 @@ describe("handlePress", () => {
 
     expect(res).toMatchObject({ code: "cancelled" });
     expect(fake.sent.some((c) => c.method === "DOM.focus")).toBe(false);
+  });
+
+  it("presses Enter when the key name is lowercase", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
+    const res = await handlePress(
+      sm,
+      { session_id: "aa11", key: "ctrl+enter" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expectPressOk(res);
+    expect(res.key).toBe("Enter");
+    expect(res.code).toBe("Enter");
+    expect(res.modifiers).toEqual(["ctrl"]);
   });
 
   it("returns invalid_params for an unknown key", async () => {
@@ -1659,6 +2014,72 @@ describe("handleSelect", () => {
     });
   });
 
+  it.each([
+    {
+      name: "an explicit option label with no text",
+      options: '<option value="us" label="United States"></option>',
+      values: ["us"],
+      selectedValues: ["us"],
+      labels: ["United States"],
+    },
+    {
+      name: "option text when the label is absent",
+      options: '<option value="ca">Canada</option>',
+      values: ["ca"],
+      selectedValues: ["ca"],
+      labels: ["Canada"],
+    },
+    {
+      name: "option text when the label is empty",
+      options: '<option value="ca" label="">Canada</option>',
+      values: ["ca"],
+      selectedValues: ["ca"],
+      labels: ["Canada"],
+    },
+    {
+      name: "mixed labels in selected-value order",
+      options:
+        '<option value="us" label="United States">US</option><option value="ca">Canada</option>',
+      values: ["ca", "us"],
+      selectedValues: ["us", "ca"],
+      labels: ["United States", "Canada"],
+    },
+  ])("returns $name", async ({ options, values, selectedValues, labels }) => {
+    const select = document.createElement("select");
+    select.multiple = values.length > 1;
+    select.innerHTML = options;
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const fake = makeFakeCdp({
+      ...selectHandlers({ ok: true, multiple: select.multiple }),
+      "Runtime.callFunctionOn": (params) => {
+        const script = params as {
+          functionDeclaration: string;
+          arguments: Array<{ value: unknown }>;
+        };
+        const fn = new Function(`return (${script.functionDeclaration})`)();
+        return {
+          result: {
+            value: fn.apply(
+              select,
+              script.arguments.map((arg) => arg.value),
+            ),
+          },
+        };
+      },
+    });
+    const res = await handleSelect(
+      sm,
+      { session_id: "aa11", ref: "e1", values },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({
+      selected_values: selectedValues,
+      selected_labels: labels,
+    });
+  });
+
   it("rejects multiple values on a single-select <select>", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");
@@ -1705,4 +2126,47 @@ describe("handleSelect", () => {
     expect(res).toMatchObject({ code: "cancelled" });
     expect(fake.sent.some((c) => c.method === "Runtime.callFunctionOn")).toBe(false);
   });
+});
+
+it.each([
+  "click",
+  "press",
+])("arms popup observation at native %s dispatch, after preparation", async (kind) => {
+  const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+  const task = await manager.start("popup");
+  task.refStore.set("e1", 1234, { tabId: 4 });
+  const order: string[] = [];
+  const fake = makeFakeCdp({
+    "DOM.scrollIntoViewIfNeeded": () => {
+      order.push("prepare");
+      return {};
+    },
+    "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
+    "Input.dispatchMouseEvent": (p) => {
+      order.push((p as { type: string }).type);
+      return {};
+    },
+    "Input.dispatchKeyEvent": (p) => {
+      order.push((p as { type: string }).type);
+      return {};
+    },
+  });
+  const onInputSent = vi.fn((id: number) => {
+    expect(id).toBe(4);
+    order.push("arm");
+  });
+  const deps = { cdp: fake.cdp, tabsApi: fake.tabsApi, onInputSent };
+  const result =
+    kind === "click"
+      ? await handleClick(manager, { session_id: "popup", ref: "e1" }, deps)
+      : await handlePress(manager, { session_id: "popup", key: "Enter" }, deps);
+  expect(result).toHaveProperty("tab_id", 4);
+  expect(onInputSent).toHaveBeenCalledTimes(2);
+  if (kind === "click")
+    expect(order).toEqual(["prepare", "mouseMoved", "arm", "mousePressed", "arm", "mouseReleased"]);
+  else {
+    expect(order.indexOf("arm")).toBeLessThan(order.indexOf("rawKeyDown"));
+    expect(order.at(-2)).toBe("arm");
+    expect(order.at(-1)).toBe("keyUp");
+  }
 });

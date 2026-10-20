@@ -1,4 +1,4 @@
-import { coverage, detectBlockingLayer } from "./layers";
+import { coverage, detectBlockingLayer, spansViewport } from "./layers";
 import type {
   ActiveScopeBlock,
   BlockingLayer,
@@ -223,7 +223,9 @@ function isFocusable(node: VomNode): boolean {
 
 function isContentEditable(node: VomNode): boolean {
   const contentEditable = node.attrs?.contenteditable?.toLowerCase();
-  return contentEditable === "true" || contentEditable === "plaintext-only";
+  return (
+    contentEditable === "" || contentEditable === "true" || contentEditable === "plaintext-only"
+  );
 }
 
 const ICON_REFERENCE_MARKERS = new Set(["glyph", "icon", "icons", "symbol"]);
@@ -1024,19 +1026,6 @@ function interactionPoints(rect: Rect): Array<[number, number]> {
   ];
 }
 
-function isModalLike(node: VomNode): boolean {
-  const role = normalizedRole(node);
-  const tag = normalizedTag(node);
-  return node.modal === true || tag === "dialog" || role === "dialog" || role === "alertdialog";
-}
-
-function activeRegionCandidatePriority(node: VomNode, viewportCoverage: number): number {
-  if (isModalLike(node)) return 4;
-  if (viewportCoverage >= 0.9) return 3;
-  if (viewportCoverage >= 0.15) return 2;
-  return 1;
-}
-
 function paintLineageByFrame(
   node: VomNode,
   parentMap: Map<number, number | null>,
@@ -1090,7 +1079,7 @@ function isBlockedByRegion(
   blocker: VomNode,
   parentMap: Map<number, number | null>,
   nodesById: Map<number, VomNode>,
-  viewportCoverage: number,
+  fullCover: boolean,
   lineageCache: Map<number, Map<string | undefined, VomNode>>,
 ): boolean {
   if (target.id === blocker.id) return false;
@@ -1103,7 +1092,7 @@ function isBlockedByRegion(
   const points = interactionPoints(target.rect);
 
   if (
-    viewportCoverage < 0.9 &&
+    !fullCover &&
     paintNodes.target.paintOrder >= paintNodes.blocker.paintOrder &&
     points.some(([x, y]) => rectContains(blocker.rect as Rect, x, y))
   ) {
@@ -1117,8 +1106,7 @@ function isBlockedByRegion(
   ) {
     return false;
   }
-  if (viewportCoverage >= 0.9) return true;
-
+  // Even a near-full region must overlap the target to occlude it.
   return points.some(([x, y]) => rectContains(blocker.rect as Rect, x, y));
 }
 
@@ -1153,15 +1141,12 @@ function applyActiveRegionPolicy(
   const lineageCache = new Map<number, Map<string | undefined, VomNode>>();
   const candidates = nodes
     .filter(isPositionedRegionCandidate)
-    .map((node) => {
-      const viewportCoverage = coverage(node.rect, scene.viewport);
-      return {
-        node,
-        viewportCoverage,
-        priority: activeRegionCandidatePriority(node, viewportCoverage),
-      };
-    })
-    .filter((candidate) => candidate.priority > 1 || candidate.viewportCoverage > 0);
+    .map((node) => ({
+      node,
+      viewportCoverage: coverage(node.rect, scene.viewport),
+      fullCover: spansViewport(node.rect, scene.viewport),
+    }))
+    .filter((candidate) => candidate.viewportCoverage > 0 || candidate.node.modal === true);
 
   const blockedRoots = new Set<number>();
   for (const target of nodes) {
@@ -1172,7 +1157,7 @@ function applyActiveRegionPolicy(
         candidate.node,
         parentMap,
         nodesById,
-        candidate.viewportCoverage,
+        candidate.fullCover,
         lineageCache,
       ),
     );

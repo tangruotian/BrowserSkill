@@ -97,6 +97,11 @@ including its CLI/plugin mappings, visible-bounds contract and cancellation
 behavior. It follows the same routing path and is classified as a browser
 mutation for session queueing and user-interruption gating.
 
+Structured extraction follows the same routing path as a passive read. The
+extension gathers bounded DOM facts and normalizes tables/lists; the CLI owns
+CSV encoding and file output. Discovery handles are scoped to session, tab,
+attachment and frame document. See [structured extraction](structured-extraction.md).
+
 ## Session and sandbox model
 
 - **Session** = opaque ID (4 lowercase letters in v0.1) + dedicated **Agent Window**
@@ -173,7 +178,7 @@ return `unsupported`; screenshots and other RPC content results remain available
 - The invoking agent/harness decides whether a transfer is authorized and supplies the task-local source or destination path.
 - The CLI is the only component that reads an upload source or writes the final download destination. Before browser dispatch it owns rollback of partially staged uploads; after dispatch, ownership moves to the session because a transport timeout cannot prove that Chrome did not attach the file. Download output becomes visible through one atomic commit, and replacement is opt-in without a pre-delete window. The extension never receives either agent-facing path.
 - The daemon is the authority for storage capabilities and limits. It issues opaque session-scoped transfer IDs, stages bounded chunks in a private runtime directory, and injects only private staged upload paths. For download it mints one relative Chrome directory capability. Only after validating the reported path, file type, symlink boundary, and authoritative byte limit does it take ownership of browser-file cleanup and import the bytes.
-- The extension owns only the browser transaction. Every transfer resolves one `ResolvedActionTarget`. The default upload mechanism arms Chrome's chooser interception before clicking, then accepts either an exact `Page.fileChooserOpened` input node or an independent probe anchored in the trigger node's document; one verified input is committed with `DOM.setFileInputFiles`, while a non-input picker is rejected immediately. Explicit drop mode performs no click and never falls back to the chooser mechanism: after geometry resolution it temporarily excludes BrowserSkill's own overlay, verifies that the resolved drop zone still owns its local action point, and sends one native `dragEnter` / `dragOver` / `drop` transaction to that node's CDP target before restoring the overlay. OOPIF drops use target-local coordinates rather than top-level click coordinates. Download correlates exact-target CDP intent and `chrome.downloads` filename candidates in either arrival order, claims only one unique match, and never cancels an unclaimed candidate.
+- The extension owns only the browser transaction. Every transfer resolves one `ResolvedActionTarget`. The default upload mechanism arms Chrome's chooser interception before clicking, then accepts either an exact `Page.fileChooserOpened` input node or an independent probe anchored in the trigger node's document; one verified input is committed with `DOM.setFileInputFiles`, while a non-input picker is rejected immediately. Explicit drop mode performs no click and never falls back to the chooser mechanism: after geometry resolution it temporarily excludes BrowserSkill's own overlay, verifies that the resolved drop zone still owns its local action point, and sends one native `dragEnter` / `dragOver` / `drop` transaction to that node's CDP target before restoring the overlay. OOPIF drops use target-local coordinates rather than top-level click coordinates. Download correlates exact-target CDP intent and `chrome.downloads` filename candidates in either arrival order, claims only one unique match, and never cancels an unclaimed candidate. When the click opens a new tab instead (for example a `target="_blank"` attachment link), the clicked target receives no CDP intent; the URL of a `webNavigation` navigation target whose source is the clicked tab and that appears after the mouse press is then the intent, and only candidates observed after the press can match it.
 - Browser-side operations report `effect_state` (`none`, `committed`, or `unknown`), `phase`, and `cleanup_state`. Confirmed success wins over a late cancel; an unknown effect is preserved across timeout or transport loss and must not be retried blindly. A transfer deadline sends cancellation to the extension and keeps the session queue occupied for bounded compensation rather than abandoning an in-flight browser effect.
 - Download staging is released after CLI commit. Upload staging remains until session teardown because the page may read an attached file only on a later form submission. Remaining staging is released on session stop/browser disconnect and on daemon startup after a crash. BrowserSkill does not inspect content or decide whether a transfer is appropriate.
 
@@ -184,8 +189,28 @@ browser-skill/
 ├── apps/extension/       # WXT Chromium extension
 ├── crates/
 │   ├── bsk-cli/           # `bsk` binary (CLI + daemon)
+│   │   └── skill/        # Canonical CLI SKILL.md + references/
 │   └── bsk-protocol/      # Wire types + schemas
 ├── install.sh            # CLI installer (GitHub Releases)
-├── skill/SKILL.md        # Agent harness instructions
+├── packages/dsh-plugin-browserskill/skill/  # DSH SKILL.md + references/
 └── docs/                 # architecture, guides
 ```
+
+
+The two skill directories above are the only authored skill sources. The CLI build
+embeds every file from its crate-local directory without copying or modifying sources.
+Installation writes the complete package. A versioned `.bsk-source` manifest tracks
+SHA-256 checksums per file; automatic updates verify all managed files and new-path
+collisions before replacing anything. Resources precede the entry point, and a pending
+manifest records expected old/new hashes so interrupted writes can be resumed safely.
+Known historical single-file checksums in `src/skill_install/legacy-digests.txt` are
+migration data, not a third instruction source. They recognize exact LF originals
+and CRLF copies; recorded per-file checksums remain byte-exact. Frozen pre-bundle
+snapshots under `tests/fixtures/legacy-skills/` cover adoption and edit protection
+without requiring Git history during CI. Explicit custom installations opt out.
+
+The DSH build embeds only its entry point. Its npm package ships the complete `skill/`
+directory, registered with a module-relative `resourceBase` so agents can read references
+on demand regardless of their working directory. CI validates local links, entry point
+budgets, Cargo contents and the actual npm archive, including resource resolution from
+the unpacked runtime.

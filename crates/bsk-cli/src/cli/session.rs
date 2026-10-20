@@ -46,6 +46,8 @@ pub enum SessionSub {
     Stop(SessionStopArgs),
     /// List active sessions.
     List,
+    /// Inspect, claim, or cancel a recoverable start request.
+    Request(SessionRequestArgs),
     /// Read a pending stop, or acknowledge the observed token for a new user request.
     Interrupt(SessionInterruptArgs),
 }
@@ -74,11 +76,14 @@ pub struct SessionStartArgs {
     /// Deprecated compatibility flag. Automation settings in the extension take precedence.
     #[arg(long)]
     pub unattended: bool,
+    /// Recoverable request token: <expiry-unix-ms>:<UUID>. Valid for at most ten minutes.
+    #[arg(long)]
+    pub request_id: Option<String>,
     /// Optional task name displayed in local operation history.
     #[arg(long)]
     pub name: Option<String>,
-    /// Target browser instance id (only required when multiple browsers
-    /// are connected).
+    /// Target browser instance ID or unique label. Always set this when
+    /// a specific browser profile is required.
     #[arg(long)]
     pub browser: Option<String>,
 
@@ -92,14 +97,17 @@ pub struct SessionStartArgs {
     #[arg(long, value_parser = window_size)]
     pub height: Option<u32>,
 
-    /// Open the Agent Window in the background without stealing focus.
-    #[arg(long)]
+    /// Keep the Agent Window in the background (the default).
+    #[arg(long, conflicts_with = "focus")]
     pub no_focus: bool,
 
     /// Attach to the active tab in the last-focused browser window. Restricted
     /// internal pages automatically fall back to a new work tab in that window.
-    #[arg(long, conflicts_with_all = ["width", "height", "no_focus"])]
+    #[arg(long, conflicts_with_all = ["width", "height", "no_focus", "focus"])]
     pub attach_current_tab: bool,
+    /// Bring the new Agent Window to the foreground.
+    #[arg(long)]
+    pub focus: bool,
 }
 
 /// Parse a `--width` / `--height` Agent Window dimension (CSS pixels).
@@ -127,12 +135,25 @@ pub struct SessionStopArgs {
     pub all: bool,
 }
 
+#[derive(Debug, Clone, Args)]
+pub struct SessionRequestArgs {
+    pub request_id: String,
+    #[arg(long, conflicts_with_all = ["claim", "prepare"])]
+    pub cancel: bool,
+    #[arg(long, conflicts_with = "claim")]
+    pub prepare: bool,
+    #[arg(long)]
+    pub claim: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct StartParams {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     new_tab: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     attach_tab_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,12 +216,38 @@ pub fn dispatch(cmd: SessionCmd, format: Format) -> Result<(), CliError> {
     let info = ensure_daemon().context("ensure daemon is running")?;
     match cmd.sub {
         SessionSub::Start(args) => {
-            run_skill_sync_for_session_start(format);
+            // Embedded clients use their own tool instructions. Keep recoverable
+            // lifecycle requests free of unrelated harness filesystem writes.
+            if args.request_id.is_none() {
+                run_skill_sync_for_session_start(format);
+            }
             run_start(info.sock_path, args, format)
         }
         SessionSub::Stop(args) => run_stop(info.sock_path, args, format),
         SessionSub::List => run_list(info.sock_path, format),
         SessionSub::Interrupt(args) => run_interrupt(info.sock_path, args, format),
+        SessionSub::Request(args) => {
+            let action = if args.prepare {
+                "prepare"
+            } else if args.cancel {
+                "cancel"
+            } else if args.claim {
+                "claim"
+            } else {
+                "status"
+            };
+            let reply: serde_json::Value = call(
+                info.sock_path,
+                Method::SessionRequest,
+                Some(serde_json::json!({"request_id": args.request_id, "action": action})),
+                Duration::from_secs(40),
+            )?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&reply).context("encode request status")?
+            );
+            Ok(())
+        }
     }
 }
 
@@ -235,10 +282,11 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
             new_tab: args.new_tab,
             attach_tab_id: args.attach_tab_id,
             name: args.name,
+            request_id: args.request_id,
             browser: args.browser,
             width: args.width,
             height: args.height,
-            focused: args.no_focus.then_some(false),
+            focused: (!args.attach_current_tab).then_some(args.focus),
             mode: if args.attach_current_tab {
                 SessionMode::CurrentTab
             } else {
@@ -274,13 +322,14 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
 
 /// Options for [`start_session`]: browser selection plus Agent Window
 /// creation hints. `None` fields keep the extension-side defaults
-/// (focused window, browser-chosen size).
+/// (background window, browser-chosen size).
 #[derive(Debug, Default, Clone)]
 pub struct SessionStartOptions {
     /// 显式新建当前浏览器内的工作页签；默认 false 保持原附着语义。
     pub new_tab: bool,
     /// 明确指定目标时，扩展必须回传同一个 attached_tab_id。
     pub attach_tab_id: Option<i64>,
+    pub request_id: Option<String>,
     pub name: Option<String>,
     pub browser: Option<String>,
     pub width: Option<u32>,
@@ -293,15 +342,24 @@ pub struct SessionStartOptions {
 pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartReply, CliError> {
     call(
         sock,
-        Method::SessionStart,
+        if opts.request_id.is_some() {
+            Method::SessionStartTracked
+        } else {
+            Method::SessionStart
+        },
         Some(StartParams {
             new_tab: opts.new_tab,
             attach_tab_id: opts.attach_tab_id,
+            request_id: opts.request_id,
             task_name: opts.name,
             browser_instance_id: opts.browser,
             width: opts.width,
             height: opts.height,
-            focused: opts.focused,
+            focused: if opts.mode == SessionMode::CurrentTab {
+                None
+            } else {
+                Some(opts.focused.unwrap_or(false))
+            },
             mode: (opts.mode != SessionMode::AgentWindow).then_some(opts.mode),
         }),
         SESSION_START_IPC_TIMEOUT,
@@ -395,6 +453,30 @@ impl RenderExtras for StartExtras<'_> {
                     writeln!(out, "  - {id}")?;
                 }
                 Ok(())
+            }
+            ErrorCode::NotFound => {
+                // Same table as `multiple_browsers_online`, but for a
+                // selector that matched nothing. Absent / empty
+                // `browsers` data (an older daemon, or a miss against an
+                // empty registry) renders nothing, so unrelated
+                // `not_found` errors keep their current output.
+                let browsers = parse_browsers_data(data.as_ref());
+                if browsers.is_empty() {
+                    return Ok(());
+                }
+                writeln!(
+                    out,
+                    "no online browser matches the requested selector; connected browsers:"
+                )?;
+                write_browser_table(out, &browsers)?;
+                // The table answers "what is connected", not "what did you
+                // mean": a mistyped selector and an offline browser look
+                // identical here, so name the question it cannot answer
+                // rather than let the caller switch instances by accident.
+                writeln!(
+                    out,
+                    "the list shows what is connected now; it cannot tell a mistyped selector from an offline browser, so check or reconnect the intended browser before starting on another instance"
+                )
             }
             _ => Ok(()),
         }
@@ -656,6 +738,7 @@ mod start_params_tests {
     #[test]
     fn exact_tab_is_serialized_without_replacing_browser_identity() {
         let params = StartParams {
+            request_id: None,
             new_tab: false,
             attach_tab_id: Some(42),
             mode: Some(SessionMode::CurrentTab),
@@ -679,6 +762,7 @@ mod start_params_tests {
                 attach_tab_id: None,
                 // 默认窗口模式保持旧协议载荷，固定页签模式由专门测试覆盖。
                 mode: None,
+                request_id: None,
                 task_name: task_name.clone(),
                 browser_instance_id: None,
                 width: None,
@@ -812,6 +896,89 @@ mod i3_tests {
         assert!(!stderr.contains("connected browsers:"));
         assert!(!stderr.contains("matches multiple online browsers"));
         assert!(stderr.contains("hint:"));
+        assert!(stderr.contains("details: requested browser is not connected"));
+    }
+
+    /// A selector that matches nothing renders the connected-browser
+    /// table, so the user (or agent) can pick a real instance id or
+    /// label in one round trip instead of cycling through every
+    /// connected browser until one starts.
+    #[test]
+    fn selector_miss_extras_render_candidate_table() {
+        let data = serde_json::json!({
+            "browsers": [
+                {
+                    "instance_id": "alpha",
+                    "browser_name": "chrome",
+                    "browser_version": "131",
+                    "extension_version": "0.1.0-dev.0",
+                    "label": "Personal",
+                    "session_count": 0_u32,
+                    "connected_at_ms": 1_i64,
+                    "version_skew": false,
+                },
+                {
+                    "instance_id": "beta",
+                    "browser_name": "edge",
+                    "browser_version": "130",
+                    "extension_version": "0.1.0-dev.0",
+                    "label": "",
+                    "session_count": 1_u32,
+                    "connected_at_ms": 2_i64,
+                    "version_skew": false,
+                },
+            ]
+        });
+        let cli = CliError::from_rpc(RpcError {
+            code: ErrorCode::NotFound,
+            message: "requested browser is not connected".into(),
+            data: Some(data),
+        });
+        let extras = StartExtras::new(&cli);
+        let stderr = render_human_to_string(&cli, Some(&extras));
+        assert!(stderr.contains("error: requested resource does not exist"));
+        assert!(
+            stderr.contains("no online browser matches the requested selector"),
+            "extras must explain the miss: {stderr}"
+        );
+        assert!(stderr.contains("INSTANCE"));
+        assert!(stderr.contains("alpha"));
+        assert!(stderr.contains("beta"));
+        assert!(stderr.contains("Personal"));
+        // The table must not read as "pick another instance": it cannot
+        // distinguish a mistyped selector from an offline browser.
+        assert!(
+            stderr.contains("cannot tell a mistyped selector from an offline browser"),
+            "extras must state what the list cannot tell: {stderr}"
+        );
+        // Ordering contract unchanged: summary → extras → hint.
+        let summary_idx = stderr.find("error:").expect("summary line missing");
+        let table_idx = stderr
+            .find("connected browsers:")
+            .expect("candidate table missing");
+        let caveat_idx = stderr
+            .find("cannot tell a mistyped selector")
+            .expect("scope caveat missing");
+        let hint_idx = stderr.find("hint:").expect("hint line missing");
+        assert!(
+            summary_idx < table_idx && table_idx < caveat_idx && caveat_idx < hint_idx,
+            "stderr order must be summary → table → caveat → hint, got:\n{stderr}"
+        );
+        assert!(stderr.contains("details: requested browser is not connected"));
+    }
+
+    /// An empty candidate list (miss against an empty registry) renders
+    /// no extras, so the change is additive for existing output.
+    #[test]
+    fn selector_miss_with_empty_candidates_renders_no_extras() {
+        let cli = CliError::from_rpc(RpcError {
+            code: ErrorCode::NotFound,
+            message: "requested browser is not connected".into(),
+            data: Some(serde_json::json!({ "browsers": [] })),
+        });
+        let extras = StartExtras::new(&cli);
+        let stderr = render_human_to_string(&cli, Some(&extras));
+        assert!(!stderr.contains("connected browsers:"));
         assert!(stderr.contains("details: requested browser is not connected"));
     }
 }

@@ -41,7 +41,8 @@ async function setup(
 ) {
   const manager = new SessionManager({
     agentWindow: {
-      create: vi.fn(async () => 100),
+      // 与上游创建回执一致，明确初始页签归属；不改变本用例保护的附着/执行行为。
+      create: vi.fn(async () => ({ windowId: 100, initialTabIds: [1] })),
       remove: vi.fn(async () => {}),
       ensureActiveTab: vi.fn(async () => 1),
     },

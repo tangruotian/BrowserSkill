@@ -65,7 +65,11 @@ const HELP_CONDITION_SCHEMA = {
   additionalProperties: false,
   properties: {
     urlContains: { type: "string" },
-    urlMatches: { type: "string" },
+    urlMatches: {
+      type: "string",
+      description:
+        "RE2-compatible URL regex (max 128 characters; compiled program max 4096 instructions).",
+    },
     selectorExists: { type: "string" },
     selectorMissing: { type: "string" },
     textExists: { type: "string" },
@@ -168,7 +172,8 @@ export function registerPhaseOneSupportTools(
         completionCriteria: {
           type: "object",
           additionalProperties: false,
-          description: "Optional explicit success detector for automatic completion.",
+          description:
+            "Optional automatic completion detector (at most 8 conditions across any and all).",
           properties: {
             any: { type: "array", items: HELP_CONDITION_SCHEMA },
             all: { type: "array", items: HELP_CONDITION_SCHEMA },
@@ -233,7 +238,7 @@ export function registerPhaseOneSupportTools(
         if (criteria?.stableForMs !== undefined && criteria.stableForMs < 0) {
           throw new Error("completionCriteria.stableForMs must be zero or greater");
         }
-        const sessionId = registry.resolve(args.session, "browser_assist(action=request-help)");
+        const sessionId = registry.resolve(args.session, "bsk_assist(action=request-help)");
         const timeoutMs = args.timeoutMs ?? 300_000;
         const cmdArgs = [
           "request-help",
@@ -288,7 +293,7 @@ export function registerPhaseOneSupportTools(
       name: "inspect.html",
       description:
         "Read raw DOM HTML from the active Agent Window tab, optionally scoped to a fresh " +
-        "snapshot ref. Use only when browser_inspect observe/snapshot cannot answer the question.",
+        "snapshot ref. Use only when bsk_inspect observe/snapshot cannot answer the question.",
       parameters: {
         session: SESSION_PARAM,
         tabId: TAB_ID_PARAM,
@@ -326,7 +331,7 @@ export function registerPhaseOneSupportTools(
           if (!isSnapshotRef(args.ref)) throw new Error("ref must be a snapshot ref such as @e3");
         }
         requirePositive(args.maxBytes, "maxBytes");
-        const sessionId = registry.resolve(args.session, "browser_inspect(action=html)");
+        const sessionId = registry.resolve(args.session, "bsk_inspect(action=html)");
         const cmdArgs = ["get-html", "--session", sessionId];
         appendTabId(cmdArgs, args.tabId);
         if (args.ref !== undefined) cmdArgs.push("--ref", args.ref);
@@ -448,7 +453,7 @@ export function registerPhaseOneSupportTools(
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         validateDebugArgs(args);
-        const sessionId = registry.resolve(args.session, "browser_inspect(action=console)");
+        const sessionId = registry.resolve(args.session, "bsk_inspect(action=console)");
         const cmdArgs = ["console", "--session", sessionId];
         appendDebugOptions(cmdArgs, args);
         if (args.includeStack === true) cmdArgs.push("--include-stack");
@@ -552,7 +557,7 @@ export function registerPhaseOneSupportTools(
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         validateDebugArgs(args);
-        const sessionId = registry.resolve(args.session, "browser_inspect(action=network)");
+        const sessionId = registry.resolve(args.session, "bsk_inspect(action=network)");
         const cmdArgs = ["network", "--session", sessionId];
         appendDebugOptions(cmdArgs, args);
         const reply = (await runtime.run(exec, cmdArgs, "network", sessionId)) as {
@@ -629,7 +634,7 @@ export function registerPhaseOneSupportTools(
         if (args.width < 100 || args.width > 7680 || args.height < 100 || args.height > 7680) {
           throw new Error("width and height must each be in the range 100..=7680");
         }
-        const sessionId = registry.resolve(args.session, "browser_assist(action=resize)");
+        const sessionId = registry.resolve(args.session, "bsk_assist(action=resize)");
         const reply = (await runtime.run(
           exec,
           [

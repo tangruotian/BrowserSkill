@@ -48,7 +48,7 @@ describe("attachSessionEventHandler", () => {
     };
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 4242),
+        create: vi.fn(async () => ({ windowId: 4242, initialTabIds: [] })),
         remove: vi.fn(path === "window" ? emitAndFlush : async () => {}),
         ensureActiveTab: vi.fn(async () => 1),
       },
@@ -74,7 +74,7 @@ describe("attachSessionEventHandler", () => {
     const events = fakeWindowEvents();
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 4242),
+        create: vi.fn(async () => ({ windowId: 4242, initialTabIds: [] })),
         remove: vi.fn(async () => {
           throw new Error("close failed");
         }),
@@ -100,7 +100,7 @@ describe("attachSessionEventHandler", () => {
   it("drops the local session and emits session.window_closed when the agent window closes", async () => {
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 4242),
+        create: vi.fn(async () => ({ windowId: 4242, initialTabIds: [] })),
         remove: vi.fn(async () => {}),
         ensureActiveTab: vi.fn(async () => 1),
       },
@@ -134,7 +134,8 @@ describe("attachSessionEventHandler", () => {
   it("drops an attached session without closing the user's window when its tab closes", async () => {
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 4242),
+        // 与上游创建回执一致，明确初始页签归属；不改变本用例保护的附着/执行行为。
+        create: vi.fn(async () => ({ windowId: 4242, initialTabIds: [1] })),
         remove: vi.fn(async () => {}),
         ensureActiveTab: vi.fn(async () => 1),
       },
@@ -166,7 +167,7 @@ describe("attachSessionEventHandler", () => {
   it("reports borrowed tabs as return failures when the Agent Window was already closed", async () => {
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 4242),
+        create: vi.fn(async () => ({ windowId: 4242, initialTabIds: [] })),
         remove: vi.fn(async () => {}),
         ensureActiveTab: vi.fn(async () => 1),
       },
@@ -207,7 +208,7 @@ describe("attachSessionEventHandler", () => {
   it("ignores non-agent windows", async () => {
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 1),
+        create: vi.fn(async () => ({ windowId: 1, initialTabIds: [] })),
         remove: vi.fn(),
         ensureActiveTab: vi.fn(async () => 1),
       },
@@ -223,7 +224,7 @@ describe("attachSessionEventHandler", () => {
   it("dispose() removes the listener", () => {
     const manager = new SessionManager({
       agentWindow: {
-        create: vi.fn(async () => 1),
+        create: vi.fn(async () => ({ windowId: 1, initialTabIds: [] })),
         remove: vi.fn(),
         ensureActiveTab: vi.fn(async () => 1),
       },

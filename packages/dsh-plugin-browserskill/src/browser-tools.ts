@@ -6,8 +6,31 @@
  */
 
 import { defineTool, type ParameterSchemaSpec, type ToolDefinition } from "@deepseek-ai/dsh-tools";
-import { SESSION_PARAM, TAB_ID_PARAM, TIMEOUT_MS_PARAM, WAIT_UNTIL_PARAM } from "./tool-params";
+import { DEBUG_PARAMETERS } from "./debug-tool";
+import { disposeAll } from "./disposables";
+import { EXTRACT_PARAMETERS } from "./extract-tool";
+import toolNames from "./tool-names.json";
+import {
+  BROWSER_PARAM,
+  ELEMENT_WAIT_PARAMS,
+  SESSION_PARAM,
+  SESSION_STOP_PARAMS,
+  TAB_ID_PARAM,
+  TIMEOUT_MS_PARAM,
+  WAIT_UNTIL_PARAM,
+} from "./tool-params";
 import { createBrowserOperationDefinitions, type ToolDeps } from "./tools";
+import { VIDEO_PARAMETERS } from "./video-tool";
+
+// Exclude the shared path before combining action-specific schemas.
+const { output: debugOutput, ...debugParameters } = DEBUG_PARAMETERS;
+const { output: videoOutput, ...videoParameters } = VIDEO_PARAMETERS;
+const { output: extractOutput, ...extractParameters } = EXTRACT_PARAMETERS;
+const INSPECT_OUTPUT = {
+  type: debugOutput.type satisfies typeof videoOutput.type & typeof extractOutput.type,
+  description:
+    "Debug export: new local JSON path. Video save: explicit MP4 destination chosen by the user; omit to preview and Save As in the extension. Video replacement requires overwrite=true. Extract: new JSON/CSV file on the CLI host; required for CSV.",
+} as const;
 
 const DEVICE_PRESETS = [
   "iphone-14",
@@ -95,38 +118,50 @@ function defineBrowserTool(
 
 const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
-    name: "browser_session",
+    name: toolNames.session,
     description:
       "Manage plugin-owned browser sessions. Actions: start opens an Agent Window; stop closes an " +
-      "owned session; list returns owned sessions. For start, url/device/width/height/noFocus/browser " +
-      "are optional. For stop, session is optional and defaults to the current owned session.",
+      "owned session; list returns owned sessions. For start, url/device/width/height/noFocus are " +
+      "optional. When a specific profile is required, always set browser to its verified instance " +
+      "ID or unique label, even with one connected browser; stop if the target is unknown or " +
+      "unavailable instead of omitting or changing browser. For stop, specify session or requestId " +
+      "(not both), or omit both to retry an " +
+      "unacknowledged stop before selecting the current owned session. If several stops await " +
+      "acknowledgement, specify a target. Once accepted, cleanup continues if the call is aborted.",
     actions: {
       start: "session.start",
       stop: "session.stop",
       list: "session.list",
     },
     parameters: {
-      session: SESSION_PARAM,
+      ...SESSION_STOP_PARAMS,
       url: { type: "string", description: "Initial URL for start." },
       width: { type: "integer", description: "Agent Window width; start requires height too." },
       height: { type: "integer", description: "Agent Window height; start requires width too." },
-      noFocus: { type: "boolean", description: "Start the Agent Window in the background." },
-      browser: { type: "string", description: "Browser instance id for start." },
+      noFocus: {
+        type: "boolean",
+        description:
+          "Background by default. Set false to explicitly open the Agent Window in front.",
+      },
+      browser: BROWSER_PARAM,
       device: { type: "string", enum: DEVICE_PRESETS, description: "Device preset for start." },
     },
   },
   {
-    name: "browser_page",
+    name: toolNames.page,
     description:
       "Navigate and wait on the active Agent Window tab. Actions: navigate, back, forward, reload, " +
-      "wait. navigate requires url; reload optionally accepts hard; navigation actions accept " +
-      "waitUntil/timeoutMs. Observe again after a meaningful page change before reusing refs.",
+      "wait, wait-for-element. navigate requires url; reload optionally accepts hard; navigation " +
+      "actions and wait accept waitUntil/timeoutMs. wait-for-element requires target and accepts " +
+      "state/pollMs; its timeoutMs defaults to 10000 (max 300000). Check satisfied: false means " +
+      "timeout, not success. Observe again after a meaningful page change before reusing refs.",
     actions: {
       navigate: "page.navigate",
       back: "page.back",
       forward: "page.forward",
       reload: "page.reload",
       wait: "page.wait",
+      "wait-for-element": "page.wait-for-element",
     },
     parameters: {
       session: SESSION_PARAM,
@@ -135,14 +170,19 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       waitUntil: WAIT_UNTIL_PARAM,
       timeoutMs: TIMEOUT_MS_PARAM,
       hard: { type: "boolean", description: "Bypass cache for reload." },
+      ...ELEMENT_WAIT_PARAMS,
     },
   },
   {
-    name: "browser_inspect",
+    name: toolNames.inspect,
     description:
-      "Read page state without arbitrary script execution. Actions: observe, snapshot, html, " +
-      "screenshot, console, network. Prefer observe, then snapshot, then bounded html; use screenshot " +
-      "for visual evidence. console/network support cursor fields since/limit/maxTextChars.",
+      "Inspect page state and explicitly control task-scoped debugging. Actions: observe, snapshot, html, " +
+      "screenshot, console, network, video, extract. video with videoAction starts/stops a requested recording, checks status, lists, saves or discards MP4 artifacts. Start video before task operations and stop before session teardown. " +
+      "extract reads loaded table/list rows with columns and sources, without scrolling or paging: discover first, then pass extractTarget; " +
+      "check coverage and warnings before calling the data complete. Prefer observe, then snapshot, then bounded html; use screenshot " +
+      "for visual evidence. console/network support cursor fields since/limit/maxTextChars. " +
+      "debug with debugAction starts/stops capture, reads/exports evidence, or explicitly controls network traffic. " +
+      "rule_add/rule_enable can block, modify or mock live requests; replay sends a new request and may change server data. Start capture before visiting the page.",
     actions: {
       observe: "inspect.observe",
       snapshot: "inspect.snapshot",
@@ -150,10 +190,17 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       screenshot: "inspect.screenshot",
       console: "inspect.console",
       network: "inspect.network",
+      debug: "inspect.debug",
+      video: "inspect.video",
+      extract: "inspect.extract",
     },
     parameters: {
       session: SESSION_PARAM,
       tabId: TAB_ID_PARAM,
+      ...debugParameters,
+      ...videoParameters,
+      ...extractParameters,
+      output: INSPECT_OUTPUT,
       maxDepth: { type: "integer", description: "Tree depth cap for observe/snapshot." },
       maxTokens: { type: "integer", description: "Token cap for observe/snapshot." },
       cursor: {
@@ -161,15 +208,18 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
         description: "Observe continuation cursor; use current refs before continuing.",
       },
       ref: { type: "string", description: "Fresh ref for scoped html or cropped screenshot." },
-      maxBytes: { type: "integer", description: "HTML byte cap." },
+      maxBytes: { type: "integer", description: "HTML/extraction byte cap." },
       since: { type: "integer", description: "Console/network sequence cursor." },
-      limit: { type: "integer", description: "Console/network entry cap." },
+      limit: {
+        type: "integer",
+        description: "Console/network entry cap; debug lists: 1..100, default 30.",
+      },
       maxTextChars: { type: "integer", description: "Console/network per-entry text cap." },
       includeStack: { type: "boolean", description: "Include console stack frames." },
     },
   },
   {
-    name: "browser_interact",
+    name: toolNames.interact,
     description:
       "Interact with the active Agent Window tab. Actions: click, hover, wheel, scroll-to, focus, blur, fill, select, " +
       "press. click/hover/scroll-to/focus/blur/fill/select require target; fill also requires value; select requires " +
@@ -224,7 +274,7 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     },
   },
   {
-    name: "browser_tabs",
+    name: toolNames.tabs,
     description:
       "Manage tabs visible to an owned session. Actions: list, create, select, close, borrow, return. " +
       "select/close/borrow/return require tabId from list/create. Borrow moves a user tab into the " +
@@ -251,7 +301,7 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     },
   },
   {
-    name: "browser_assist",
+    name: toolNames.assist,
     description:
       "Display and human-assistance operations. Actions: resize, emulate, request-help. resize " +
       "requires width/height; emulate accepts device or width/height/mobile, or off alone; " +
@@ -280,7 +330,8 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
       completionCriteria: {
         type: "object",
         additionalProperties: false,
-        description: "Automatic completion detector for request-help.",
+        description:
+          "Automatic completion detector for request-help (at most 8 conditions across any and all).",
         properties: {
           any: {
             type: "array",
@@ -289,7 +340,11 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
               additionalProperties: false,
               properties: {
                 urlContains: { type: "string" },
-                urlMatches: { type: "string" },
+                urlMatches: {
+                  type: "string",
+                  description:
+                    "RE2-compatible URL regex (max 128 characters; compiled program max 4096 instructions).",
+                },
                 selectorExists: { type: "string" },
                 selectorMissing: { type: "string" },
                 textExists: { type: "string" },
@@ -304,7 +359,11 @@ const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
               additionalProperties: false,
               properties: {
                 urlContains: { type: "string" },
-                urlMatches: { type: "string" },
+                urlMatches: {
+                  type: "string",
+                  description:
+                    "RE2-compatible URL regex (max 128 characters; compiled program max 4096 instructions).",
+                },
                 selectorExists: { type: "string" },
                 selectorMissing: { type: "string" },
                 textExists: { type: "string" },
@@ -344,13 +403,26 @@ function indexOperations(definitions: ToolDefinition[]): ReadonlyMap<string, Too
   return indexed;
 }
 
-/** Register the complete six-tool browser suite; returns its combined disposer. */
+/** Register all six tools or roll back this attempt; never remove foreign entries. */
 export function registerBrowserTools(deps: ToolDeps): () => void {
-  const definitions = indexOperations(createBrowserOperationDefinitions(deps));
-  const disposers = BROWSER_TOOL_SPECS.map((spec) =>
-    deps.ctx.tools.register(defineBrowserTool(spec, definitions)),
-  ).filter((dispose): dispose is () => void => typeof dispose === "function");
-  return () => {
-    for (const dispose of disposers.splice(0)) dispose();
-  };
+  const operations = indexOperations(createBrowserOperationDefinitions(deps));
+  // Validate every definition before publishing any schema. The host emits
+  // changes per registration; this is rollback, not an atomic registry update.
+  const definitions = BROWSER_TOOL_SPECS.map((spec) => defineBrowserTool(spec, operations));
+  const disposers: (() => void)[] = [];
+  for (const definition of definitions) {
+    try {
+      disposers.push(deps.ctx.tools.register(definition));
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      const failure = new Error(`Failed to register ${definition.name}: ${detail}`, { cause });
+      try {
+        disposeAll(disposers);
+      } catch (cleanupError) {
+        throw new AggregateError([failure, cleanupError], failure.message, { cause });
+      }
+      throw failure;
+    }
+  }
+  return () => disposeAll(disposers);
 }

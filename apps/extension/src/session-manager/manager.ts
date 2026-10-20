@@ -33,13 +33,22 @@ export interface SessionContext {
    * Tabs opened through Chrome UI never enter this set.
    */
   agentCreatedTabs: Set<number>;
+  /** Observed same-window popups: controllable, but preserved by session stop. */
+  observedTabs?: Set<number>;
+  /** Unclassified arrivals and failed external moves must not become implicit tool targets. */
+  pendingRoutingTabs?: Set<number>;
   createdAtMs: number;
 }
 
 /** Whether this session has explicitly claimed control of `tabId`. */
 export function isAgentControlledTab(ctx: SessionContext, tabId: number): boolean {
+  // 当前页签模式仅控制绑定目标；Agent Window 另保留上游弹窗归属。
   if (ctx.mode === "current_tab") return ctx.attachedTabId === tabId;
-  return ctx.agentCreatedTabs.has(tabId) || ctx.borrowedTabs.has(tabId);
+  return (
+    ctx.agentCreatedTabs.has(tabId) ||
+    ctx.borrowedTabs.has(tabId) ||
+    (ctx.observedTabs?.has(tabId) ?? false)
+  );
 }
 
 export interface BorrowedTab {
@@ -70,7 +79,7 @@ export interface SessionStartOptions {
   mode?: SessionMode;
   /** Optional Agent Window outer size in CSS pixels. */
   size?: { width: number; height: number };
-  /** Defaults to true so existing clients keep visible Agent Windows. */
+  /** Background by default; true explicitly opens the window in front. */
   focused?: boolean;
   /** Cancellation for the transactional Agent Window startup sequence. */
   signal?: AbortSignal;
@@ -225,8 +234,26 @@ export class SessionManager {
     this.invalidateTabRefs(tabId);
     for (const ctx of this.sessions.values()) {
       ctx.agentCreatedTabs.delete(tabId);
+      ctx.observedTabs?.delete(tabId);
       if (!isWindowClosing) ctx.borrowedTabs.delete(tabId);
     }
+  }
+
+  /** All kinds of committed control, not just borrowed tabs. */
+  findControllingSession(tabId: number): string | null {
+    return this.list().find((ctx) => isAgentControlledTab(ctx, tabId))?.sessionId ?? null;
+  }
+
+  /** Observation does not follow a page moved out by the browser user. */
+  releaseObservedTab(tabId: number): string[] {
+    const released: string[] = [];
+    for (const ctx of this.sessions.values()) {
+      if (ctx.observedTabs?.delete(tabId)) {
+        ctx.refStore.invalidateTab(tabId);
+        released.push(ctx.sessionId);
+      }
+    }
+    return released;
   }
 
   /**
@@ -258,7 +285,9 @@ export class SessionManager {
    */
   tryReserveBorrow(tabId: number, sessionId: string): BorrowReservation | { borrowedBy: string } {
     const borrowedBy =
-      this.borrowReservations.get(tabId) ?? this.findBorrowingSession(tabId, sessionId);
+      this.borrowReservations.get(tabId) ??
+      this.findControllingSession(tabId) ??
+      this.findBorrowingSession(tabId, sessionId);
     if (borrowedBy) return { borrowedBy };
     this.borrowReservations.set(tabId, sessionId);
     let closed = false;
@@ -371,6 +400,7 @@ export class SessionManager {
     }
 
     let windowId: number | null = null;
+    const agentCreatedTabs = new Set<number>();
     try {
       const {
         signal: _signal,
@@ -379,9 +409,16 @@ export class SessionManager {
         newTab: _newTab,
         ...createOptions
       } = opts;
-      windowId = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
+      const created = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
+      windowId = created.windowId;
+      for (const tabId of created.initialTabIds) agentCreatedTabs.add(tabId);
       throwIfSessionStartAborted(opts.signal);
-      const homeTabId = await this.agentWindow.ensureActiveTab(windowId, AGENT_WINDOW_HOME);
+      const homeTabId = await this.agentWindow.ensureActiveTab(
+        windowId,
+        AGENT_WINDOW_HOME,
+        agentCreatedTabs,
+      );
+      agentCreatedTabs.add(homeTabId);
       throwIfSessionStartAborted(opts.signal);
 
       const ctx: SessionContext = {
@@ -392,10 +429,10 @@ export class SessionManager {
         fallbackCreated: false,
         refStore: new RefStore(),
         borrowedTabs: new Map(),
-        // The home tab is the session's first explicit claim. Every other
-        // tab remains free until `tab_create` or `tab_borrow` identifies it
-        // by its concrete Chrome tab id.
-        agentCreatedTabs: new Set([homeTabId]),
+        // Capture ownership at creation, before initialization can fail.
+        // Later tabs remain free until `tab_create` or `tab_borrow` identifies
+        // them by their concrete Chrome tab id.
+        agentCreatedTabs,
         createdAtMs: this.now(),
       };
       this.sessions.set(sessionId, ctx);
@@ -406,6 +443,23 @@ export class SessionManager {
         try {
           await this.agentWindow.remove(windowId);
         } catch (cleanupError) {
+          // The daemon may retry stop after a failed startup rollback. Retain
+          // the exact window handle until closure is confirmed.
+          const pending: SessionContext = {
+            ...(this.remote() ? { remote: true } : {}),
+            sessionId,
+            // 启动回滚失败仍属于独立窗口；重试 stop 必须真正关闭它，
+            // 不能因模式缺失误当成需要保留用户窗口的 current_tab 会话。
+            mode: "agent_window",
+            fallbackCreated: false,
+            agentWindowId: windowId,
+            refStore: new RefStore(),
+            borrowedTabs: new Map(),
+            agentCreatedTabs,
+            createdAtMs: this.now(),
+          };
+          this.sessions.set(sessionId, pending);
+          this.windowIndex.set(windowId, sessionId);
           throw new SessionStartCleanupError(windowId, startupError, cleanupError);
         }
       }

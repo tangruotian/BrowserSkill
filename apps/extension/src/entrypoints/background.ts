@@ -1,5 +1,8 @@
 import { i18n } from "@browser-skill/i18n";
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
+import { LocalDebugArchive } from "@/debug/archive";
+import { attachDebugBridge } from "@/debug/bridge";
+import { DebugManager } from "@/debug/manager";
 import { getAuditEnabled } from "@/lib/audit";
 import { attachAuditBridge } from "@/lib/audit-bridge";
 import { ConnectionController } from "@/lib/connection-controller";
@@ -24,13 +27,17 @@ import {
   type OverlayMessage,
   type OverlayMode,
 } from "@/lib/overlay-bridge";
+import { nextOverlayVersion } from "@/lib/overlay-version";
 import { POPUP_PORT_NAME, type PopupInbound, type PopupOutbound } from "@/lib/popup-bridge";
 import { recordFrameCoordinator } from "@/lib/recording/frame-coordinator";
 import { attachSessionsLiveFlag } from "@/lib/sessions-live-flag";
+import { captureTaskPreview, focusTask } from "@/lib/task-preview";
+import { attachUiChannel } from "@/lib/ui-channel";
 import { attachLongScreenshot } from "@/long-screenshot/background";
 import { createDisconnectCleanup } from "@/session-manager/disconnect-cleanup";
 import { attachSessionEventHandler } from "@/session-manager/event-handler";
 import { isAgentControlledTab, SessionManager } from "@/session-manager/manager";
+import { AgentWindowRouting } from "@/session-manager/window-routing";
 import {
   attachBorrowNotificationButtonHandler,
   attachBorrowNotificationClickHandler,
@@ -40,19 +47,25 @@ import {
   requestBorrowConfirmation,
 } from "@/tools/borrow-confirmation";
 import { ToolDispatcher } from "@/tools/dispatcher";
+import { hasActiveHelp } from "@/tools/human-loop";
 import {
   attachRecordFinishListener,
   attachRecordQueryListener,
   attachRecordStepListener,
+  hasActiveRecording,
   type RecordRuntimeDeps,
 } from "@/tools/record";
-import { chromeTabsApi } from "@/tools/shared";
+import { cdpBlockedUrlReason, chromeTabsApi } from "@/tools/shared";
 import { chromeTabMutationApi } from "@/tools/tabs";
 import { detectBrowserMeta } from "@/transport/handshake";
 import { watchRemoteAuthorization } from "@/transport/remote-authorization";
 import { type RemoteEndpoint, remoteSocket } from "@/transport/remote-endpoint";
 import type { Transport } from "@/transport/transport";
 import { WSTransport } from "@/transport/ws-transport";
+import { attachVideoBridge } from "@/video/bridge";
+import { BrowserVideoHost } from "@/video/host";
+import { VideoManager } from "@/video/manager";
+import { VIDEO_OVERLAY } from "@/video/overlay";
 
 export default defineBackground(() => {
   const controller = new ConnectionController();
@@ -63,10 +76,23 @@ export default defineBackground(() => {
     url: __BSK_DAEMON_WS_URL__,
     webSocketFactory: (url) => {
       if (!connectionPreferenceValid) throw new Error("Connection settings are unavailable");
-      return remoteSocket(url, remoteEndpoint);
+      const socket = remoteSocket(url, remoteEndpoint);
+      // Registered before the transport listens, so `ui.*` frames are answered
+      // here instead of reaching the tool dispatcher. Remote gateways only.
+      if (remoteEndpoint)
+        attachUiChannel(socket, {
+          focus: (sessionId) => focusTask(sessions, sessionId),
+          preview: (sessionId) => captureTaskPreview(sessions, cdp, sessionId),
+        });
+      return socket;
     },
   });
   const sessions = new SessionManager({ remote: () => remoteEndpoint !== null });
+  const windowRouting = new AgentWindowRouting(
+    sessions,
+    chrome,
+    (id) => hasActiveHelp(id) || hasActiveRecording(id),
+  );
   attachLongScreenshot({
     isTabBusy: (tabId) => sessions.list().some((session) => isAgentControlledTab(session, tabId)),
   });
@@ -80,8 +106,67 @@ export default defineBackground(() => {
       return session !== null && (!session.remote || isAgentControlledTab(session, tabId));
     },
   });
+  const debug = new DebugManager(sessions, cdp, chrome.tabs, Date.now, new LocalDebugArchive());
+  attachDebugBridge(sessions, debug);
+  const videoHost = new BrowserVideoHost();
+  const video = new VideoManager({
+    sessions,
+    cdp,
+    tabs: chromeTabsApi,
+    host: videoHost,
+    owner: () => requestedConnection?.key ?? "unavailable",
+    overlay: async (tabId, recordingId) => {
+      try {
+        // Another content script can receive messages before the overlay script
+        // mounts, resolving undefined instead of reporting a missing receiver.
+        // The overlay stays hidden until its own video handshake completes.
+        return (
+          (await chrome.tabs.sendMessage(
+            tabId,
+            { type: VIDEO_OVERLAY, recording_id: recordingId },
+            { frameId: 0 },
+          )) ?? {}
+        );
+      } catch (error) {
+        // Error pages, downloads and PDF viewers may have no content script.
+        // A receiving script must confirm a clean paint; absent scripts have no overlay.
+        const tab = await chrome.tabs.get(tabId);
+        if (
+          !recordingId ||
+          tab.url === "about:blank" ||
+          (error instanceof Error && error.message.includes("Receiving end does not exist"))
+        )
+          return {};
+        throw error;
+      }
+    },
+    changed: () => {
+      void chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+      void chrome.action.setBadgeText({ text: video.isRecording() ? "REC" : "" });
+    },
+  });
+  attachVideoBridge(video, videoHost, (sessionId) => handleOverlayInterrupt(transport, sessionId));
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    if (details.frameId !== 0) return;
+    if (cdpBlockedUrlReason(details.url))
+      void video.stopTab(details.tabId, "capture_failed").catch(() => {});
+    else void video.navigationStarted(details.tabId, details.timeStamp).catch(() => {});
+  });
+  chrome.webNavigation.onCompleted.addListener((details) => {
+    if (details.frameId === 0)
+      void video.navigationSettled(details.tabId, details.timeStamp).catch(() => {});
+  });
+  chrome.webNavigation.onErrorOccurred.addListener((details) => {
+    if (details.frameId === 0)
+      void video.navigationSettled(details.tabId, details.timeStamp).catch(() => {});
+  });
+  chrome.debugger.onDetach.addListener((source) => {
+    if (source.tabId !== undefined) debug.stopTab(source.tabId, "debugger_detached");
+    if (source.tabId !== undefined)
+      void video.stopTab(source.tabId, "debugger_detached").catch(() => {});
+  });
   const sessionsLive = attachSessionsLiveFlag({ manager: sessions });
-  let overlayGeneration = 0;
+  const popupSnapshotRefreshers = new Set<() => void>();
   const controlModes = new Map<string, OverlayMode>();
 
   watchRemoteAuthorization();
@@ -122,7 +207,6 @@ export default defineBackground(() => {
   function setControlMode(sessionId: string, mode: OverlayMode): void {
     if (controlModes.get(sessionId) === mode) return;
     controlModes.set(sessionId, mode);
-    overlayGeneration += 1;
     const ctx = sessions.get(sessionId);
     if (!ctx) return;
     if (ctx.mode === "current_tab" && ctx.attachedTabId !== undefined) {
@@ -144,21 +228,21 @@ export default defineBackground(() => {
         type: OVERLAY_AGENT_STATE,
         sessionId: null,
         mode: "hidden",
-        generation: overlayGeneration,
+        ...nextOverlayVersion(),
       };
     }
     return {
       type: OVERLAY_AGENT_STATE,
       sessionId: ctx.sessionId,
       mode: controlModes.get(ctx.sessionId) ?? "control",
-      generation: overlayGeneration,
+      ...nextOverlayVersion(),
     };
   }
 
   /**
    * Authoritative overlay state for a specific tab. Agent Window tabs are
    * free by default; only tabs explicitly claimed through session startup,
-   * `tab_create`, or `tab_borrow` receive the control overlay.
+   * `tab_create`, `tab_borrow`, or popup observation receive the control overlay.
    */
   function overlayStateForTab(tabId?: number, windowId?: number): OverlayAgentStateMessage {
     return overlayStateForTarget(tabId, windowId);
@@ -210,13 +294,16 @@ export default defineBackground(() => {
   }
 
   function onOverlaySessionStateChanged(): void {
+    windowRouting.sync();
+    debug.sync();
+    video.sync();
     void sessionsLive.syncFromManager();
     const liveSessionIds = new Set(sessions.list().map((ctx) => ctx.sessionId));
     for (const sessionId of controlModes.keys()) {
       if (!liveSessionIds.has(sessionId)) controlModes.delete(sessionId);
     }
-    overlayGeneration += 1;
     pushAllAgentOverlayStates();
+    for (const refresh of popupSnapshotRefreshers) refresh();
   }
 
   function onBrowserControlResumed(sessionId: string): void {
@@ -249,8 +336,21 @@ export default defineBackground(() => {
     if (!sessions.findByWindowId(tab.windowId)) return;
     void pushOverlayStateForTab(tab.id, tab.windowId);
   });
+  chrome.tabs.onDetached.addListener((tabId) => {
+    void video.stopTab(tabId, "session_ended").catch(() => {});
+    debug.releaseTab(tabId);
+    const releasedSessionIds = sessions.releaseObservedTab(tabId);
+    if (releasedSessionIds.length > 0) void pushOverlayStateForTab(tabId);
+    for (const sessionId of releasedSessionIds)
+      void cdp
+        .releaseSessionTab(sessionId, tabId)
+        .catch((error) => console.debug("[bsk] observed tab release failed", error));
+  });
   chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    void video.stopTab(tabId, "tab_closed").catch(() => {});
+    debug.stopTab(tabId, "tab_closed");
     sessions.forgetClosedTab(tabId, { isWindowClosing: removeInfo.isWindowClosing });
+    debug.sync();
   });
   // Re-sync the storage.session flag on SW startup so a previous SW's
   // stale `true` does not keep waking us on every page load until the
@@ -265,9 +365,7 @@ export default defineBackground(() => {
       tabManagement: { tabs: chromeTabMutationApi },
       tabsQuery: chromeTabsApi,
     },
-    onSessionsChanged: () => {
-      void sessionsLive.syncFromManager();
-    },
+    onSessionsChanged: onOverlaySessionStateChanged,
   });
   const recordDeps = {
     tabsApi: chrome.tabs,
@@ -308,6 +406,8 @@ export default defineBackground(() => {
   });
   void interactionPreferences.readyOrFallback();
   const dispatcher = new ToolDispatcher({
+    debug,
+    video,
     interactionPreferences,
     transport,
     sessions,
@@ -428,6 +528,10 @@ export default defineBackground(() => {
     ]);
     controller.setAuditEnabled(auditEnabled);
     const cleanup = async () => {
+      await video
+        .disconnect()
+        .catch((error) => console.warn("Video finalization failed during disconnect", error));
+      debug.dispose();
       const report = await cleanupAfterDisconnect();
       if (report.failures.length > 0) {
         throw new Error(
@@ -490,14 +594,29 @@ export default defineBackground(() => {
         console.debug("[browser-skill] popup post failed", err);
       }
     };
+    const postSnapshot = () => {
+      post({
+        kind: "snapshot",
+        data: { ...controller.snapshot(), sessionCount: sessions.list().length },
+      });
+    };
     const unsubscribe = controller.subscribe((snap) => {
-      post({ kind: "snapshot", data: snap });
+      post({ kind: "snapshot", data: { ...snap, sessionCount: sessions.list().length } });
     });
+    popupSnapshotRefreshers.add(postSnapshot);
     connection.onMessage.addListener((raw: unknown) => {
       const msg = raw as PopupOutbound;
       if (msg && typeof msg === "object" && "kind" in msg) {
         if (msg.kind === "set_label") {
-          void setLabel(msg.value).then(() => controller.refreshLabel());
+          // A reconnect is required for the daemon to receive the new label.
+          // Never turn a display-name edit into an implicit session teardown.
+          void dispatcher
+            .runWhenIdle(async () => {
+              await setLabel(msg.value);
+              await controller.refreshLabel();
+            })
+            .then(() => postSnapshot())
+            .catch((err) => console.error("[browser-skill] label update failed", err));
         } else if (msg.kind === "set_connection_enabled") {
           void controller.setConnectionEnabled(msg.value);
           // Persist user intent in message order, independently of slow cleanup.
@@ -509,7 +628,10 @@ export default defineBackground(() => {
         }
       }
     });
-    connection.onDisconnect.addListener(() => unsubscribe());
+    connection.onDisconnect.addListener(() => {
+      popupSnapshotRefreshers.delete(postSnapshot);
+      unsubscribe();
+    });
   });
 
   // Stash on globalThis so the SW DevTools can poke at internals.

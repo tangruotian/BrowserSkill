@@ -74,7 +74,7 @@ interface ActiveRecording {
   resolveFinish: (trace: RecordedTrace) => void;
   rejectFinish: (err: Error) => void;
   settled: boolean;
-  finishAttempt: Promise<RecordedTrace | null> | null;
+  finishAttempt: Promise<FinishOutcome> | null;
   observation: RecordingObservationRuntime | null;
   stoppedBy: StopReason;
   /** Navigation callbacks tracked from event receipt through action enqueue. */
@@ -90,6 +90,8 @@ interface ActiveRecording {
   lastStepSequenceByProducer: Map<string, number>;
 }
 
+type FinishOutcome = { trace: RecordedTrace } | { error: string };
+
 function enqueueRecordingAction(
   recording: ActiveRecording,
   task: () => Promise<void>,
@@ -104,6 +106,10 @@ function isRecordingFinishing(recording: ActiveRecording): boolean {
 }
 
 const recordings = new Map<string, ActiveRecording>();
+
+export function hasActiveRecording(sessionId: string): boolean {
+  return recordings.has(sessionId);
+}
 
 const RECORD_START_RETRIES = 3;
 const RECORD_START_RETRY_DELAY_MS = 500;
@@ -519,7 +525,7 @@ async function stopRecordingOnAllAgentTabs(
   deps: RecordDeps,
 ): Promise<void> {
   if (deps.frameCoordinator && !(await deps.frameCoordinator.stop(recording.requestId))) {
-    throw new Error("failed to flush one or more recording documents");
+    throw new Error("one or more recording documents did not confirm their final steps");
   }
   const stopMsg: RecordStopMessage = { type: RECORD_STOP, requestId: recording.requestId };
   let tabIds = [recording.tabs.currentTabId];
@@ -539,15 +545,13 @@ async function stopRecordingOnAllAgentTabs(
 
   for (const tabId of tabIds) {
     if (!recording.isTabAllowed(tabId)) continue;
+    // RECORD_STOP only clears the tab's record overlay; captured steps are
+    // flushed by the frame coordinator above. Tabs the overlay script cannot
+    // enter (blob:, the PDF viewer, browser pages) have nothing to clear.
     try {
-      const response = await deps.sendToTab(tabId, stopMsg);
-      if (tabId === recording.tabs.currentTabId && !isRecordStartAck(response)) {
-        throw new Error("content script did not confirm recorded steps");
-      }
+      await deps.sendToTab(tabId, stopMsg);
     } catch {
-      if (tabId === recording.tabs.currentTabId) {
-        throw new Error("failed to flush recorded steps");
-      }
+      // Best-effort cleanup.
     }
     if (deps.bypassOverlay) {
       try {
@@ -819,7 +823,7 @@ async function finishRecording(
   sessionId: string,
   deps: RecordDeps,
   stoppedBy: StopReason,
-): Promise<RecordedTrace | null> {
+): Promise<FinishOutcome | null> {
   const recording = recordings.get(sessionId);
   if (!recording || recording.settled) return null;
   if (recording.finishAttempt) return recording.finishAttempt;
@@ -840,18 +844,18 @@ async function finishRecordingAttempt(
   sessionId: string,
   recording: ActiveRecording,
   deps: RecordDeps,
-): Promise<RecordedTrace | null> {
+): Promise<FinishOutcome> {
   await clearRearmTimersForRecording(recording, deps);
   try {
     // Disposing content capture may commit a final dirty fill. Flush content
     // first so all resulting RECORD_STEP messages enter actionQueue before it
     // and the observation queues are drained.
     await stopRecordingOnAllAgentTabs(recording, deps);
-  } catch {
-    return null;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
   if (!(await drainRecordingToStability(recording))) {
-    return null;
+    return { error: "navigation and action queues did not settle" };
   }
   await recording.observation?.settleTrailing(recording.tabs.currentTabId, recording.steps);
 
@@ -860,7 +864,7 @@ async function finishRecordingAttempt(
   releaseBrowserObservationListenersIfIdle();
   const trace = buildTrace(recording);
   recording.resolveFinish(trace);
-  return trace;
+  return { trace };
 }
 
 export async function handleRecordStart(
@@ -1148,14 +1152,15 @@ export async function handleRecordStop(
     };
   }
 
-  const trace = await finishRecording(params.session_id, deps, "cli_stop");
-  if (!trace) {
+  const outcome = await finishRecording(params.session_id, deps, "cli_stop");
+  if (!outcome || "error" in outcome) {
+    const reason = outcome ? `: ${outcome.error}` : "";
     return {
       code: "protocol_error",
-      message: `failed to flush recorded steps for session ${params.session_id}; the recording is still active — retry \`bsk record stop\``,
+      message: `failed to flush recorded steps for session ${params.session_id}${reason}; the recording is still active — retry \`bsk record stop\``,
     };
   }
-  return { trace };
+  return { trace: outcome.trace };
 }
 
 export async function handleRecordAwait(

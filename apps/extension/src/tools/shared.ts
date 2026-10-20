@@ -6,7 +6,7 @@
 // exactly the same sandbox + visibility rules as the M6 observation
 // handlers (review parity).
 
-import type { CdpDebuggee, DialogCursor } from "@/browser-driver/chromium-cdp";
+import type { CdpDebuggee, CdpDispatchGuard, DialogCursor } from "@/browser-driver/chromium-cdp";
 import type { CdpFrameGraph, CdpTarget } from "@/browser-driver/frame-graph";
 import { cdpBlockedUrlReason } from "@/session-manager/agent-window";
 import {
@@ -43,6 +43,7 @@ export interface ResolvedTargetTab {
   windowId: number;
   active: boolean;
   url?: string;
+  pendingUrl?: string;
 }
 
 export type { DialogCursor };
@@ -58,10 +59,22 @@ export type { DialogCursor };
 export interface CdpRunner {
   send<T = unknown>(tabId: number, method: string, params?: object): Promise<T>;
   sendToTarget?<T = unknown>(target: CdpTarget, method: string, params?: object): Promise<T>;
-  detach?(tabId: number): Promise<void>;
+  /** Production dispatch boundary; optional for lightweight test runners. */
+  sendGuarded?<T = unknown>(
+    target: CdpTarget,
+    method: string,
+    params: object | undefined,
+    guard: CdpDispatchGuard,
+  ): Promise<T>;
+  detach?(tabId: number, expectedAttachmentId?: string): Promise<void>;
   getFrameGraph?(tabId: number): Promise<CdpFrameGraph>;
   getAttachmentId?(tabId: number): string | undefined;
   ensureAttachedToUrl?(tabId: number, expectedUrl: string | undefined): Promise<void>;
+  acquireBackgroundExecution?(sessionId: string, tabId: number): Promise<void>;
+  /** Whether this session requests the persistent override, regardless of applied CDP state. */
+  ownsBackgroundExecution?(sessionId: string, tabId: number): boolean;
+  /** Resend this session's owned override, even when the applied-state cache reports it active. */
+  restoreBackgroundExecution?(sessionId: string, tabId: number): Promise<void>;
   trackSessionTab?(sessionId: string, tabId: number): void;
   releaseSessionTab?(sessionId: string, tabId: number): Promise<void>;
   onEvent?(handler: (source: CdpDebuggee, method: string, params: unknown) => void): {
@@ -196,6 +209,10 @@ export async function resolveTargetTab(
   return target;
 }
 
+function isPendingTabRouting(ctx: SessionContext, tabId: number): boolean {
+  return (ctx.pendingRoutingTabs?.has(tabId) ?? false) && !isAgentControlledTab(ctx, tabId);
+}
+
 async function resolveVisibleTargetTab(
   manager: SessionManager,
   ctx: SessionContext,
@@ -271,10 +288,35 @@ async function resolveVisibleTargetTab(
         message: `tab ${tabId} not found in session scope`,
       };
     }
-    return { tabId: tab.id, windowId: tab.windowId, active: tab.active === true, url: tab.url };
+    return {
+      tabId: tab.id,
+      windowId: tab.windowId,
+      active: tab.active === true,
+      url: tab.url,
+      pendingUrl: tab.pendingUrl,
+    };
   }
   const tabs = await api.query({ active: true, windowId: ctx.agentWindowId });
-  const first = tabs.find((t) => typeof t.id === "number");
+  let first = tabs.find((t) => typeof t.id === "number");
+  if (first?.id !== undefined && isPendingTabRouting(ctx, first.id)) {
+    // External arrivals can become active before Chrome lets us move them.
+    // Prefer the most recently accessed controlled page without activating tabs.
+    const available = await api.query({ windowId: ctx.agentWindowId });
+    first = available
+      .filter(
+        (tab) =>
+          tab.id !== undefined &&
+          tab.windowId === ctx.agentWindowId &&
+          isAgentControlledTab(ctx, tab.id),
+      )
+      .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
+    if (!first) {
+      return {
+        code: "not_found",
+        message: `no controlled tab available in Agent Window ${ctx.agentWindowId}; create or borrow a task tab`,
+      };
+    }
+  }
   if (!first || typeof first.id !== "number") {
     return {
       code: "not_found",
@@ -286,6 +328,7 @@ async function resolveVisibleTargetTab(
     windowId: ctx.agentWindowId,
     active: first.active === true,
     url: first.url,
+    pendingUrl: first.pendingUrl,
   };
 }
 
@@ -361,6 +404,7 @@ export async function resolveCdpAccessibleTargetTab(
   const tabs = await api.query({ windowId: ctx.agentWindowId });
   for (const tab of tabs) {
     if (ctx.remote && (tab.id === undefined || !isAgentControlledTab(ctx, tab.id))) continue;
+    if (tab.id !== undefined && isPendingTabRouting(ctx, tab.id)) continue;
     const candidate = resolvedTargetFromChromeTab(tab, ctx.agentWindowId);
     if (!candidate) continue;
     if (!enforceCdpAccessibleTarget(candidate, toolName)) return candidate;

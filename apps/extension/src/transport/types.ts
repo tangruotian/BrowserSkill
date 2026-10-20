@@ -4,6 +4,7 @@
 // sides without extra adapters.
 
 export type RpcId = string;
+export type { ExtractParams, ExtractResult } from "@/tools/extract/types";
 
 export type ErrorCode =
   | "unknown_method"
@@ -21,6 +22,20 @@ export type ErrorCode =
 
 /** Stable `RpcError.data.reason` values for CLI hint selection. */
 export type RpcErrorReason =
+  | "extract_params_invalid"
+  | "extract_target_stale"
+  | "extract_target_ambiguous"
+  | "extract_target_hidden"
+  | "extract_selector_invalid"
+  | "extract_structure_invalid"
+  | "extract_field_ambiguous"
+  | "extract_limit"
+  | "ui_lookup_failed"
+  | "task_unavailable"
+  | "target_unavailable"
+  | "task_stopping"
+  | "ui_deadline"
+  | "preview_busy"
   | "agent_window_scope"
   | "current_tab_scope"
   | "element_not_visible"
@@ -55,6 +70,7 @@ export type RpcErrorReason =
   | "confirmation_ui_unavailable"
   | "borrow_outcome_unknown"
   | "screenshot_capture_failed"
+  | "renderer_read_timeout"
   | "user_cancelled"
   | "page_hidden"
   | "navigation"
@@ -68,6 +84,7 @@ export type RpcErrorReason =
   | "file_drop_target_unavailable"
   | "file_drop_failed"
   | "download_capture_failed"
+  | "download_path_mismatch"
   | "transfer_outcome_unknown"
   | "transfer_timeout"
   | "cleanup_failed";
@@ -762,6 +779,36 @@ export interface WaitForNavigationResult {
   dialogs?: JavaScriptDialogInfo[];
 }
 
+/**
+ * Element states `wait-for-element` can wait on. `visible` / `hidden` ask about
+ * visibility; `attached` / `detached` ask about presence in the DOM.
+ * `hidden` is the opposite of `visible`: absent or attached but not visible.
+ * The `attached` result distinguishes these two observations.
+ */
+export type ElementState = "visible" | "hidden" | "attached" | "detached";
+
+export interface WaitForElementParams {
+  session_id: string;
+  ref?: string;
+  selector?: string;
+  state: ElementState;
+  tab_id?: number;
+  timeout_ms?: number;
+  poll_ms?: number;
+}
+
+export interface WaitForElementResult {
+  tab_id: number;
+  used_ref?: string;
+  used_selector?: string;
+  satisfied: boolean;
+  /** Last completed probe; null if no probe completed before timeout. */
+  attached: boolean | null;
+  visible: boolean | null;
+  elapsed_ms: number;
+  dialogs?: JavaScriptDialogInfo[];
+}
+
 // --------------------------------------------------------------------------
 // Human-in-loop payloads — request_help (mirror bsk-protocol)
 // --------------------------------------------------------------------------
@@ -781,7 +828,7 @@ export type HelpOutcome =
 
 export interface HelpCompletionCondition {
   url_contains?: string;
-  url_matches?: string;
+  url_matches?: string | null;
   selector_exists?: string;
   selector_missing?: string;
   text_exists?: string;

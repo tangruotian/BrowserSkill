@@ -14,14 +14,17 @@ import type { Context } from "@deepseek-ai/cordis";
 import Schema from "@deepseek-ai/schemastery";
 import { armArchiveCleanup } from "./archive-cleanup";
 import { registerBrowserTools } from "./browser-tools";
+import { disposeAll } from "./disposables";
 import { armLazyTools } from "./lazy-tools";
 import { ObservationService } from "./observation";
 import { registerObservationRoutes } from "./observation-http";
 import { KeyedExecutor } from "./queue";
 import { type BskRunner, createBskRunner } from "./runner";
+import { SessionStarts } from "./session-starts";
 import { SessionRegistry } from "./sessions";
 import { armAgentScopedBskSkill, registerBskSkill } from "./skill";
-import type { PluginConfig } from "./tools";
+import { DiskStartJournal, defaultStartJournalDirectory, type StartJournal } from "./start-journal";
+import type { PluginConfig, ToolDeps } from "./tools";
 
 export const name = "@wxg-prc-cpg/browser-skill-dsh-plugin";
 export const inject = ["tools"];
@@ -31,9 +34,14 @@ export const Config = Schema.object({
   bskPath: Schema.string()
     .default("bsk")
     .description("Path to the bsk CLI binary (defaults to resolving `bsk` from PATH)."),
+  sessionStateDirectory: Schema.string().description(
+    "Directory for durable browser start recovery records; defaults to BSK_HOME/dsh-starts scoped by working directory and CLI.",
+  ),
   defaultTimeoutMs: Schema.number()
     .default(120_000)
-    .description("Default per-command timeout in milliseconds."),
+    .description(
+      "Default command execution timeout in milliseconds. Collecting output after exit may take up to 2 additional seconds.",
+    ),
   maxSessions: Schema.number()
     .default(5)
     .description("Maximum number of concurrent browser sessions started through this plugin."),
@@ -49,7 +57,7 @@ export const Config = Schema.object({
   lazyTools: Schema.boolean()
     .default(true)
     .description(
-      "Reveal the browser_* tools only after the browser-skill skill is invoked (default true); " +
+      "Reveal the bsk_* tools only after the browser-skill skill is invoked (default true); " +
         "false registers the full suite at load.",
     ),
 });
@@ -59,6 +67,7 @@ export type Config = PluginConfig;
 /** Test seams: swap the process runner (unit tests never spawn a real bsk). */
 export interface ApplyOptions {
   runnerFactory?: (bskPath: string) => BskRunner;
+  startJournal?: StartJournal;
 }
 
 export function apply(
@@ -68,6 +77,7 @@ export function apply(
 ): void {
   const resolved: PluginConfig = {
     bskPath: config.bskPath ?? "bsk",
+    sessionStateDirectory: config.sessionStateDirectory,
     defaultTimeoutMs: config.defaultTimeoutMs ?? 120_000,
     maxSessions: config.maxSessions ?? 5,
     observationEnabled: config.observationEnabled ?? true,
@@ -90,32 +100,57 @@ export function apply(
     },
   });
 
+  const deps: ToolDeps = { ctx, runner, registry, config: resolved, observation, queue };
+  const journal =
+    options.startJournal ??
+    new DiskStartJournal(
+      resolved.sessionStateDirectory ?? defaultStartJournalDirectory(resolved.bskPath),
+    );
+  if (journal instanceof DiskStartJournal) journal.recover();
+  const starts = (deps.starts = new SessionStarts(deps, journal));
+  const disposers: (() => void)[] = [];
+  // Own resources before eager registration can throw. Cordis unwinds this
+  // effect on a failed apply as well as unload; owned starts still get stopped.
+  ctx.effect(() => {
+    let cleanup: Promise<void> | undefined;
+    return () =>
+      (cleanup ??= (async () => {
+        try {
+          disposeAll(disposers);
+        } finally {
+          try {
+            await starts.dispose();
+          } finally {
+            observation.dispose();
+          }
+        }
+      })());
+  });
+  void starts.reconcile().catch((error) => console.warn("Browser start recovery failed", error));
+
   // Progressive disclosure of the BSK agent skill (catalog entry resident,
   // body on demand) through the official skill seam; silent no-op when the
   // composition lacks it. With lazyTools on, the skill entry is initially the
   // ONLY model-visible advertisement — the tool suite reveals itself on a
   // successful skill invocation (or a session whose history already has one).
-  const unregisterSkill = registerBskSkill(ctx);
+  disposers.push(registerBskSkill(ctx));
   // A same-name CLI skill left in ~/.agents is discovered in the nearer preset
   // layer and shadows the global registration above. Re-register through every
-  // exact agent context at startup so DSH always loads the browser_* protocol
+  // exact agent context at startup so DSH always loads the bsk_* protocol
   // instructions; the shared CLI skill remains untouched for other agents.
-  const disarmAgentSkill = armAgentScopedBskSkill(ctx);
-  const registerSuite = () =>
-    registerBrowserTools({ ctx, runner, registry, config: resolved, observation, queue });
-  const removeSuite = resolved.lazyTools ? armLazyTools(ctx, registerSuite) : registerSuite();
+  disposers.push(armAgentScopedBskSkill(ctx));
+  const registerSuite = () => registerBrowserTools(deps);
+  disposers.push(resolved.lazyTools ? armLazyTools(ctx, registerSuite) : registerSuite());
   // Route registration rides ctx.inject: the webServer service may be provided
   // AFTER this plugin loads, and in headless compositions it never appears (the
   // callback simply never runs, leaving the rest of the plugin unaffected).
-  let removeRoutes: () => void = () => {};
   ctx.inject(["webServer"], (injected) => {
-    removeRoutes = registerObservationRoutes(injected, observation);
-    return () => removeRoutes();
+    return registerObservationRoutes(injected, observation, starts);
   });
   // Reap a conversation's browsers when the conversation itself is archived:
   // archived sessions are hidden from every surface, so their Agent Windows
   // would otherwise linger unreachable until idle timeout or unload.
-  const disarmArchiveCleanup = armArchiveCleanup(ctx, registry, observation);
+  disposers.push(armArchiveCleanup(ctx, starts));
 
   // Non-blocking install probe: warn early when bsk is missing instead of
   // failing the first tool call with a bare spawn error. Uses --version on
@@ -130,26 +165,6 @@ export function apply(
       );
     },
   );
-
-  // Unload cleanup: kill in-flight children, then stop every session this
-  // plugin OWNS (created via browser_session action=start). Referenced or unknown
-  // sessions belonging to other programs on the shared daemon are never
-  // touched; per-stop failures (already stopped externally, daemon restart)
-  // are swallowed so one stale handle cannot abort the rest.
-  ctx.effect(() => {
-    return () => {
-      removeSuite();
-      disarmAgentSkill();
-      unregisterSkill();
-      removeRoutes();
-      disarmArchiveCleanup();
-      runner.killAll();
-      const stops = registry
-        .ownedIds()
-        .map((sessionId) => observation.stopSession(sessionId).catch(() => false));
-      return Promise.all(stops).then(() => observation.dispose());
-    };
-  });
 }
 
 export { armArchiveCleanup, ownerSessionIds } from "./archive-cleanup";
