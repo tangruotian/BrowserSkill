@@ -14,6 +14,7 @@ use clap::{Args, Subcommand};
 
 use crate::cli::TOOL_IPC_TIMEOUT;
 
+mod cleanup;
 mod export;
 
 use crate::cli::business_rpc;
@@ -188,21 +189,44 @@ fn dispatch_start(args: RecordStartArgs, format: Format) -> Result<(), CliError>
         record_await_ipc_timeout(RECORD_AWAIT_TIMEOUT_MS),
     );
 
-    // Keep write/render inside a Result so `?` cannot skip session teardown.
-    let run_result: Result<(), CliError> = match await_result {
-        Ok(result) => (|| {
-            let exported = export_with_recovery(&args.output, &result.trace)?;
-            render_finish(&result.trace, &args.output, &exported, format)
-        })(),
-        Err(err) => Err(err),
-    };
+    match await_result {
+        Ok(result) => finish_recording(
+            info.sock_path,
+            &session.session_id,
+            &result.trace,
+            &args.output,
+            format,
+        ),
+        Err(err) => {
+            // Await failure is not capture success. Preserve ownership if cleanup
+            // cannot be verified, so a later stop can still release this session.
+            if cleanup::close(info.sock_path, &session.session_id).is_ok() {
+                record_state::clear_session(&session.session_id);
+            }
+            Err(err)
+        }
+    }
+}
 
-    let session_stop_result = stop_session(info.sock_path, &session.session_id);
-    record_state::clear_session(&session.session_id);
-
-    run_result?;
-    session_stop_result?;
-    Ok(())
+/// Save evidence even if cleanup fails, but render success only after teardown.
+/// Both CLI processes share this path and the idempotent cleanup lock. In JSON
+/// mode there must be exactly one terminal document, never success followed by
+/// a second error document from main's error renderer.
+fn finish_recording(
+    sock: PathBuf,
+    session_id: &str,
+    trace: &RecordedTrace,
+    output: &PathBuf,
+    format: Format,
+) -> Result<(), CliError> {
+    let exported = export_with_recovery(output, trace);
+    let closed = cleanup::close(sock, session_id);
+    if closed.is_ok() {
+        record_state::clear_session(session_id);
+    }
+    let exported = exported?;
+    closed?;
+    render_finish(trace, output, &exported, format)
 }
 
 fn dispatch_stop(args: RecordStopArgs, format: Format) -> Result<(), CliError> {
@@ -224,17 +248,13 @@ fn dispatch_stop(args: RecordStopArgs, format: Format) -> Result<(), CliError> {
         )
         .map_err(|err| forget_stale_recording(err, &session_id))?;
 
-        let run_result: Result<(), CliError> = (|| {
-            let exported = export_with_recovery(&args.output, &result.trace)?;
-            render_stop(&result, &args.output, &exported, format)
-        })();
-
-        let session_stop_result = stop_session(info.sock_path, &session_id);
-        record_state::clear_session(&session_id);
-
-        run_result?;
-        session_stop_result?;
-        return Ok(());
+        return finish_recording(
+            info.sock_path,
+            &session_id,
+            &result.trace,
+            &args.output,
+            format,
+        );
     }
 
     let Some(trace) = record_recovery::load().map_err(CliError::Local)? else {
@@ -394,15 +414,6 @@ fn render_finish(
         },
     }
     Ok(())
-}
-
-fn render_stop(
-    result: &RecordStopResult,
-    output: &PathBuf,
-    exported: &ExportMeta,
-    format: Format,
-) -> Result<(), CliError> {
-    render_finish(&result.trace, output, exported, format)
 }
 
 #[cfg(test)]

@@ -271,3 +271,133 @@ async fn failed_record_stop_keeps_state_and_session_for_retry() {
     }
     daemon.shutdown().await;
 }
+
+/// Drive the real daemon and two real CLI children, not a mock of cleanup::close.
+/// Both record RPCs receive the same trace before the first session-stop reply;
+/// the old implementation races, exits nonzero and can emit two JSON documents.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_start_stop_finish_once_and_allow_the_next_recording() {
+    let temp = tempfile::Builder::new()
+        .prefix("bsk-record-race-")
+        .tempdir()
+        .unwrap();
+    let home = temp.path().join("home");
+    let sock = temp.path().join("daemon.sock");
+    let daemon = daemon::run(DaemonConfig::new(0), Some(sock.clone()))
+        .await
+        .unwrap();
+    bsk::daemon::info::write_to_path(
+        &DaemonInfo::now(
+            std::process::id(),
+            sock,
+            daemon.ws_addr().port(),
+            env!("CARGO_PKG_VERSION"),
+        ),
+        &home.join("daemon.json"),
+    )
+    .unwrap();
+    let mut extension = connect_extension(daemon.ws_addr()).await;
+    handshake(&mut extension).await;
+    let stops = Arc::new(AtomicUsize::new(0));
+    let stops_seen = stops.clone();
+    let (ready_tx, mut ready_rx) = tokio::sync::mpsc::channel::<()>(2);
+    let worker = tokio::spawn(async move {
+        let mut waiting = None;
+        while let Some(Ok(Message::Text(text))) = extension.next().await {
+            let Ok(Frame::Request(request)) = serde_json::from_str::<Frame>(&text) else {
+                continue;
+            };
+            let body = match request.method {
+                Method::ToolSessionStart => ResponseBody::Ok(json!({"agent_window_id":100})),
+                Method::ToolRecordStart => ResponseBody::Ok(json!({"tab_id":1,"recording":true})),
+                Method::ToolRecordAwait => {
+                    waiting = Some(request.id);
+                    ready_tx.send(()).await.unwrap();
+                    continue;
+                }
+                Method::ToolRecordStop => {
+                    let trace = serde_json::to_value(RecordStopResult {
+                        trace: RecordedTrace::V3(sample_trace()),
+                    })
+                    .unwrap();
+                    if let Some(id) = waiting.take() {
+                        let response = ResponseFrame {
+                            id,
+                            body: ResponseBody::Ok(trace.clone()),
+                        };
+                        extension
+                            .send(Message::Text(serde_json::to_string(&response).unwrap()))
+                            .await
+                            .unwrap();
+                    }
+                    ResponseBody::Ok(trace)
+                }
+                Method::ToolSessionStop => {
+                    stops_seen.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    ResponseBody::Ok(json!({}))
+                }
+                _ => ResponseBody::Err(RpcError {
+                    code: ErrorCode::ProtocolError,
+                    message: format!("unexpected {:?}", request.method),
+                    data: None,
+                }),
+            };
+            extension
+                .send(Message::Text(
+                    serde_json::to_string(&ResponseFrame {
+                        id: request.id,
+                        body,
+                    })
+                    .unwrap(),
+                ))
+                .await
+                .unwrap();
+        }
+    });
+    for round in 0..2 {
+        let output = temp.path().join(format!("trace-{round}"));
+        let start = Command::new(bsk_bin())
+            .args(["--json", "record", "start", "--output"])
+            .arg(&output)
+            .env(BSK_HOME_ENV, &home)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(15), ready_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let stop = Command::new(bsk_bin())
+            .args(["--json", "record", "stop", "--output"])
+            .arg(&output)
+            .env(BSK_HOME_ENV, &home)
+            .kill_on_drop(true)
+            .output();
+        let (start_result, stop_result) = tokio::time::timeout(Duration::from_secs(20), async {
+            tokio::join!(start.wait_with_output(), stop)
+        })
+        .await
+        .unwrap();
+        for result in [start_result.unwrap(), stop_result.unwrap()] {
+            assert!(
+                result.status.success(),
+                "stdout={} stderr={}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let payload: serde_json::Value =
+                serde_json::from_slice(&result.stdout).expect("exactly one complete terminal JSON");
+            assert_eq!(payload["window_closed"], true);
+            assert_eq!(payload["trace_version"], 3);
+        }
+        assert_eq!(stops.load(Ordering::SeqCst), round + 1);
+        assert!(!home.join("record-session.json").exists());
+        assert!(output.join("trace.json").exists());
+        assert!(output.join("states/s1.txt").exists());
+    }
+    worker.abort();
+    daemon.shutdown().await;
+}
