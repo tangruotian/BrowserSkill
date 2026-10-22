@@ -4,6 +4,7 @@ import { SessionManager } from "@/session-manager/manager";
 import type { CdpRunner } from "@/tools/shared";
 import { EXTENSION_VERSION } from "@/transport/handshake";
 import type { RecordedTrace, RecordStopResult, TraceV3 } from "@/transport/types";
+import * as navigation from "../navigation";
 import {
   attachRecordFinishListener,
   attachRecordStepListener,
@@ -421,11 +422,138 @@ describe("recorded user steps reach the exported trace", () => {
     expect(trace.entry.start_url).toBe(userUrl);
   });
 
-  /**
-   * An explicit `url` is a deliberate "start the demo here" instruction and
-   * must keep navigating even for current-tab sessions, so recordings that
-   * need a known entry page stay reproducible.
-   */
+  /** 导航返回 timeout 也可能是普通结果；取消与权限错误必须原样保留，不能开启采集。 */
+  it.each([
+    "timeout",
+    "cancelled",
+    "cdp_failed",
+  ] as const)("does not arm blank-tab recording after navigation %s", async (code) => {
+    installChrome();
+    const manager = new SessionManager({
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({
+          windowId: AGENT_WINDOW_ID,
+          tabId: TAB_ID,
+          url: "about:blank",
+        }),
+      },
+    });
+    await manager.start("abcd", { mode: "current_tab" });
+    const tabsApi = makeTabsApi();
+    tabsApi.goTo("about:blank", "");
+    const navigate = vi
+      .spyOn(navigation, "handleNavigate")
+      .mockResolvedValueOnce(
+        code === "timeout"
+          ? { tab_id: TAB_ID, url: "https://www.google.com/", reached: "timeout" }
+          : { code, message: "navigation failed" },
+      );
+    const sendToTab = vi.fn(async (_tabId: number, _msg: unknown) => ({ ok: true }));
+    try {
+      expect(
+        await handleRecordStart(
+          manager,
+          { session_id: "abcd", trace_version: 3 },
+          {
+            tabsApi,
+            cdp: makeFakeCdp(),
+            sendToTab,
+          },
+        ),
+      ).toMatchObject({ code });
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(
+        sendToTab.mock.calls.some(([, msg]) => (msg as { type?: string }).type === RECORD_START),
+      ).toBe(false);
+    } finally {
+      navigate.mockRestore();
+    }
+  });
+
+  /** 空白页仅导航已绑定页签一次；记录入口是 Google，不能把准备导航当成用户演示。 */
+  it("opens Google in the bound blank tab before arming capture", async () => {
+    installChrome();
+    const manager = new SessionManager({
+      currentTab: {
+        getLastFocusedActiveTab: async () => ({
+          windowId: AGENT_WINDOW_ID,
+          tabId: TAB_ID,
+          url: "about:blank",
+        }),
+      },
+    });
+    await manager.start("abcd", { mode: "current_tab" });
+    const tabsApi = makeTabsApi();
+    tabsApi.goTo("about:blank", "");
+    const inner = makeFakeCdp();
+    const navigations: Array<{ tabId: number; url: string }> = [];
+    const cdp: FakeCdp = {
+      ...inner,
+      send: (async (tabId: number, method: string, params: unknown) => {
+        if (method === "Page.navigate") {
+          const url = (params as { url: string }).url;
+          navigations.push({ tabId, url });
+          tabsApi.goTo(url, "Google");
+        }
+        return inner.send(tabId, method, params as never);
+      }) as CdpRunner["send"],
+    };
+    const sendToTab = vi.fn(async (_tabId: number, _msg: unknown) => ({ ok: true }));
+    const deps = { tabsApi, cdp, sendToTab };
+    const params = {
+      session_id: "abcd",
+      trace_version: 3 as const,
+      supports_tab_switch_steps: true,
+    };
+    expect(await handleRecordStart(manager, params, deps)).toEqual({
+      tab_id: TAB_ID,
+      recording: true,
+    });
+    expect(navigations).toEqual([{ tabId: TAB_ID, url: "https://www.google.com/" }]);
+    const stopped = await handleRecordStop(manager, { session_id: "abcd" }, deps);
+    const trace = asTraceV3((stopped as RecordStopResult).trace);
+    expect(trace.entry.start_url).toBe("https://www.google.com/");
+    expect(trace.steps).toHaveLength(0);
+  });
+
+  /** Google 不可达不能伪报起录，也不重试或切换目标；其他受限页面从来不自动跳转。 */
+  it.each([
+    "about:blank",
+    "chrome://newtab/",
+    "chrome-extension://test/page.html",
+  ])("keeps failed or restricted startup recoverable on %s", async (url) => {
+    installChrome();
+    const manager = new SessionManager({
+      currentTab: {
+        // 先绑定可用页面，再模拟用户把该固定页签切到受限页，测试录制层而非 session 起建回退。
+        getLastFocusedActiveTab: async () => ({
+          windowId: AGENT_WINDOW_ID,
+          tabId: TAB_ID,
+          url: START_URL,
+        }),
+      },
+    });
+    await manager.start("abcd", { mode: "current_tab" });
+    const tabsApi = makeTabsApi();
+    tabsApi.goTo(url, "Restricted");
+    const { cdp, methods } = spyCdp(makeFakeCdp());
+    const sendToTab = vi.fn(async (_tabId: number, _msg: unknown) => ({ ok: true }));
+    const result = await handleRecordStart(
+      manager,
+      { session_id: "abcd", trace_version: 3 },
+      { tabsApi, cdp, sendToTab },
+    );
+    expect(result).toMatchObject({ code: "invalid_params" });
+    expect(methods.filter((method) => method === "Page.navigate")).toHaveLength(
+      url === "about:blank" ? 1 : 0,
+    );
+    expect(
+      sendToTab.mock.calls.some(([, msg]) => (msg as { type?: string }).type === RECORD_START),
+    ).toBe(false);
+    if (url === "about:blank")
+      expect(result).toMatchObject({ message: expect.stringContaining("Google 起始页未能加载") });
+  });
+
   it("still navigates a current-tab session when an explicit url is given", async () => {
     installChrome();
     const manager = new SessionManager({

@@ -135,8 +135,8 @@ export const BSK_TRACE_VERSION = EXTENSION_VERSION;
  *
  * Only applies to Agent Window sessions: a fresh Agent Window boots on
  * `about:blank`, where MV3 content scripts cannot attach, so recording needs
- * *some* real page. Current-tab sessions already sit on a real page and record
- * it in place instead (see `recordInPlace` in {@link handleRecordStart}).
+ * *some* real page. Current-tab sessions keep existing pages in place; only an
+ * exact about:blank receives the separate Google fallback in handleRecordStart.
  */
 export const RECORD_DEFAULT_START_URL = "https://example.com/";
 
@@ -894,7 +894,7 @@ export async function handleRecordStart(
   if (isRpcError(target)) return target;
 
   // A current-tab session with no explicit `url` records the page the user is
-  // already working in, in place: navigating would reload it and throw away
+  // already working in, in place (except about:blank below): navigating would reload it and throw away
   // exactly the state the demonstration depends on (filled forms, open menus,
   // scroll position, and any post-login view that is not addressable by URL).
   // An explicit `url` still wins so callers can deliberately start from a
@@ -916,7 +916,16 @@ export async function handleRecordStart(
   void finishPromise.catch(() => {});
   const isTabAllowed = (tabId: number) =>
     !ctx.remote || (manager.get(ctx.sessionId) === ctx && isAgentControlledTab(ctx, tabId));
-  const navigateUrl = recordInPlace ? undefined : (params.url ?? RECORD_DEFAULT_START_URL);
+  // 当前页签只对精确的 about:blank 做自动起始页回退。判断发生在会话已绑定
+  // target.tabId 之后，导航仍走同一页签的 handleNavigate，不能失败后重新挑选活动页签。
+  // 业务页面（包括未提交表单）、chrome:// 和扩展页都不能被这个便利功能覆盖；
+  // 显式 url 始终优先，Agent Window 的既有默认地址也不改变。
+  const useBlankStartPage = recordInPlace && target.url === "about:blank";
+  const navigateUrl = useBlankStartPage
+    ? "https://www.google.com/"
+    : recordInPlace
+      ? undefined
+      : (params.url ?? RECORD_DEFAULT_START_URL);
   // Provisional start URL until the tab reports its settled one further down.
   // In-place recording starts from whatever the attached tab already shows.
   const initialUrl = navigateUrl ?? target.url;
@@ -1030,7 +1039,24 @@ export async function handleRecordStart(
     );
     if (isRpcError(nav)) {
       await abortPending(false);
-      return nav;
+      // Google 不可达时保留导航错误码并明确恢复方式，不假装已经开始采集，
+      // 也不另开页面或循环导航。已取消的请求继续保留原取消语义。
+      return useBlankStartPage && nav.code !== "cancelled"
+        ? {
+            ...nav,
+            message:
+              "空白页已尝试打开 Google，但页面未能就绪。请在此页打开可访问的网站后重新录制。",
+          }
+        : nav;
+    }
+    // handleNavigate 的生命周期超时是普通结果而不是 RpcError，回退场景必须显式
+    // 检查它，防止地址已改为 https 但页面尚未加载时错误地启动录制。
+    if (useBlankStartPage && nav.reached === "timeout") {
+      await abortPending(false);
+      return {
+        code: "timeout",
+        message: "打开 Google 超时，请在当前页签打开可访问的网站后重新录制。",
+      };
     }
     {
       const cancelled = await abortIfCancelled(false);
@@ -1072,11 +1098,13 @@ export async function handleRecordStart(
     await abortPending(false);
     return {
       code: "invalid_params",
-      message: recordInPlace
-        ? `cannot record on restricted URL (${startUrl}); switch this tab to an http(s) page, then start recording again`
-        : params.url
-          ? `cannot record on restricted URL (${startUrl}); use an http(s) page`
-          : `cannot record on restricted URL (${startUrl}); default start page https://example.com/ did not load — pass --url with a page you can open`,
+      message: useBlankStartPage
+        ? "Google 起始页未能加载，请在当前页签打开可访问的网站后重新录制。"
+        : recordInPlace
+          ? `cannot record on restricted URL (${startUrl}); switch this tab to an http(s) page, then start recording again`
+          : params.url
+            ? `cannot record on restricted URL (${startUrl}); use an http(s) page`
+            : `cannot record on restricted URL (${startUrl}); default start page https://example.com/ did not load — pass --url with a page you can open`,
     };
   }
 

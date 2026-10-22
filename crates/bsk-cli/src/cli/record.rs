@@ -62,7 +62,8 @@ pub struct RecordStartArgs {
     /// Record the active tab of the last-focused browser window in place:
     /// no Agent Window is opened and, unless `--url` is given, the page the
     /// user is already on is kept as-is instead of being navigated away.
-    /// Restricted internal pages cannot be recorded and are reported as an
+    /// The extension opens Google first only when that bound tab is about:blank.
+    /// Other restricted internal pages cannot be recorded and are reported as an
     /// error rather than silently replaced. Conflicts with `--tab-id`
     /// because the attached tab is chosen by the browser, not by the caller.
     #[arg(long, conflicts_with = "tab_id")]
@@ -71,8 +72,8 @@ pub struct RecordStartArgs {
     /// Navigate to this http(s) URL before recording. When omitted, the
     /// Agent Window defaults to `https://example.com/`; if that page does
     /// not load, pass `--url` with a site you can open in this browser.
-    /// With `--attach-current-tab`, omitting `--url` means "do not navigate";
-    /// passing it explicitly still navigates the attached tab.
+    /// With `--attach-current-tab`, omitting `--url` preserves existing pages;
+    /// an about:blank tab opens Google first. An explicit URL still wins.
     #[arg(long)]
     pub url: Option<String>,
 
