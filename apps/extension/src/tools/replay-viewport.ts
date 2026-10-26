@@ -2,6 +2,7 @@ import type { CdpRunner } from "./shared";
 
 interface Widths {
   viewportWidth: number;
+  /** 等效所需宽度：整页及可见滚动容器的最大溢出比例乘以当前视口。 */
   contentWidth: number;
   ready: boolean;
 }
@@ -21,38 +22,85 @@ interface Deps {
   zoomApi: ZoomApi;
 }
 interface ZoomLease extends ReplayPage {
+  /** 兼容旧 runId 字段；新版宿主传整轮请求 ID，同轮多个 Pipeline 共用首次原始比例。 */
   runId: string;
   original: number;
   applied: number;
   pending?: number;
   settings: chrome.tabs.ZoomSettings;
+  /** 仅阻止对相同布局反复无效缩小；每步仍测宽，布局改变就重新尝试。 */
+  ineffective?: Widths;
 }
-// 缩放归属于当前浏览器会话、运行和文档，不是站点偏好。WeakMap 不延长会话寿命；
-// 会话丢失/扩展重载后不猜测旧归属，Chrome 的 per-tab 缩放在真正导航时自行重置。
+// 标签页/文档级归属，不写站点偏好。真正导航后 Chrome 会重置 per-tab 缩放；下一步
+// 必须重新测宽，不能沿用旧文档租约。扩展重载或会话丢失后也不猜测旧状态。
 const leases = new WeakMap<object, Map<number, ZoomLease>>();
-const MIN_ZOOM = 0.67;
+const MIN_ZOOM = 0.25;
 const TOLERANCE = 2;
 
 /**
- * 在主文档内读取整页宽度。只看根滚动区和 body，不扫描后代的 scrollWidth，
- * 否则宽表格自身的横向滚动会被误当作整页溢出。本函数通过 CDP 序列化执行，
- * 必须自包含，且不读取正文、表单值，也不接受任意页面脚本。
+ * 读取当前界面的横向滚动，不读正文或表单值。本函数由 CDP 序列化，必须自包含。
+ * 先用廉价的 clientWidth/scrollWidth 筛选，再检查可见性；只纳入与视口相交、真正
+ * 支持横向滚动的容器，避免隐藏模板、纵向列表和 overflow:hidden 被误判。开放的
+ * shadow root 一并检查；跨域 iframe 不执行页面脚本，仍由既有 frame 定位/滚动处理。
+ * 不使用 overflow-x:scroll 的样式本身判溢出，因为它可在内容已完整时仍显示空滚动条。
  */
 export function documentWidths(this: Document): Widths {
   const root = this.documentElement;
   const body = this.body;
-  return {
-    viewportWidth: (this.compatMode === "BackCompat" ? body?.clientWidth : root?.clientWidth) ?? 0,
-    contentWidth: Math.max(
-      this.scrollingElement?.scrollWidth ?? 0,
-      root?.scrollWidth ?? 0,
-      body?.scrollWidth ?? 0,
-    ),
-    ready: this.readyState !== "loading" && !!body,
-  };
+  const viewportWidth =
+    (this.compatMode === "BackCompat" ? body?.clientWidth : root?.clientWidth) ?? 0;
+  const viewportHeight = root?.clientHeight || this.defaultView?.innerHeight || 0;
+  let contentWidth = Math.max(
+    this.scrollingElement?.scrollWidth ?? 0,
+    root?.scrollWidth ?? 0,
+    body?.scrollWidth ?? 0,
+  );
+  const scopes: (Document | ShadowRoot)[] = [this];
+  for (const scope of scopes) {
+    for (const element of scope.querySelectorAll("*")) {
+      if (element.shadowRoot) scopes.push(element.shadowRoot);
+      if (
+        element === root ||
+        element === body ||
+        element.clientWidth <= 0 ||
+        element.scrollWidth <= element.clientWidth + 2
+      )
+        continue;
+      const rect = element.getBoundingClientRect();
+      if (
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        rect.right <= 0 ||
+        rect.left >= viewportWidth ||
+        rect.bottom <= 0 ||
+        rect.top >= viewportHeight
+      )
+        continue;
+      const style = this.defaultView?.getComputedStyle(element);
+      if (
+        !style ||
+        !["auto", "scroll", "overlay"].includes(style.overflowX) ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.opacity === "0"
+      )
+        continue;
+      if (
+        element.checkVisibility &&
+        !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+      )
+        continue;
+      // 按滚动容器自己的可用宽度求比例，不能把表格的绝对宽度误当成整个页面宽度。
+      contentWidth = Math.max(
+        contentWidth,
+        (viewportWidth * element.scrollWidth) / element.clientWidth,
+      );
+    }
+  }
+  return { viewportWidth, contentWidth, ready: this.readyState !== "loading" && !!body };
 }
 
-/** 每次变更前复核主文档，不能在等待重排期间把旧页面的缩放写到导航后的页面。 */
+/** 每次写入前重新核对主文档，不把旧页面的比例施加到等待期间新导航的页面。 */
 async function guard(page: ReplayPage, deps: Deps): Promise<void> {
   deps.signal?.throwIfAborted();
   const doc = await deps.cdp.send<{ root: { backendNodeId: number } }>(
@@ -66,8 +114,10 @@ async function guard(page: ReplayPage, deps: Deps): Promise<void> {
 }
 
 /**
- * 两次间隔采样稳定后立即继续。首次加载沿用常规就绪的 30 秒上限，不能用很短的
- * 重排时间误杀慢加载页面；缩放后的复测最多等 1.5 秒。外层原子取消信号仍优先。
+ * 已就绪且没有横向溢出时一次采样立即继续，不为每一步固定等待。确有溢出则两次
+ * 50ms 间隔采样稳定后计算比例；缩放后复测最多等待 1.5 秒。加载中的初次测量仍沿用
+ * 30 秒上限和外层动作取消，不能用短重排期限误杀慢页面。读取后再次 guard，避免旧
+ * 文档的测量结果误授权下一步动作（包括无需缩放的快速路径）。
  */
 async function settledWidths(page: ReplayPage, deps: Deps, timeoutMs = 30000): Promise<Widths> {
   const deadline = Date.now() + timeoutMs;
@@ -80,7 +130,10 @@ async function settledWidths(page: ReplayPage, deps: Deps, timeoutMs = 30000): P
       const node = await deps.cdp.send<{ object: { objectId: string } }>(
         page.tabId,
         "DOM.resolveNode",
-        { backendNodeId: page.documentEpoch, objectGroup: group },
+        {
+          backendNodeId: page.documentEpoch,
+          objectGroup: group,
+        },
       );
       const result = await deps.cdp.send<{
         result: { value?: Widths };
@@ -96,7 +149,7 @@ async function settledWidths(page: ReplayPage, deps: Deps, timeoutMs = 30000): P
         .send(page.tabId, "Runtime.releaseObjectGroup", { objectGroup: group })
         .catch(() => {});
     }
-    deps.signal?.throwIfAborted();
+    await guard(page, deps);
     if (
       widths?.ready &&
       Number.isFinite(widths.viewportWidth) &&
@@ -105,53 +158,76 @@ async function settledWidths(page: ReplayPage, deps: Deps, timeoutMs = 30000): P
       widths.contentWidth > 0
     ) {
       if (
-        previous &&
-        Math.abs(previous.viewportWidth - widths.viewportWidth) <= 1 &&
-        Math.abs(previous.contentWidth - widths.contentWidth) <= 1
+        widths.contentWidth <= widths.viewportWidth + TOLERANCE ||
+        (previous &&
+          Math.abs(previous.viewportWidth - widths.viewportWidth) <= 1 &&
+          Math.abs(previous.contentWidth - widths.contentWidth) <= 1)
       )
         return widths;
       previous = widths;
     } else previous = undefined;
-    // 等待有固定上限；取消后最多等待本次 50ms，下一轮不会再读取或写入页面。
     await new Promise((resolve) => setTimeout(resolve, 50));
   } while (Date.now() < deadline);
   throw new Error("页面布局尚未稳定，未派发本次业务动作");
 }
 
 /**
- * 仅 Pipeline 回放显式调用，先估算一次缩放，再最多修正一次。缩放写操作走
- * pipeline_step 中断门禁；失败不会返回业务点击回执，也不会触发业务动作重放。
- * 先存 lease 再改变设置，即使设置/缩放的响应丢失，结束清理仍可检查实际状态。
+ * 每步只缩小、不恢复或反向放大。直接按最严重的横向溢出比例计算，布局有改善但仍
+ * 溢出时最多再修正三次，最低采用 Chrome 原生 25%。固定宽度容器可能与缩放同比
+ * 缩小，溢出比例不改善时立即止损，后续相同布局只读检查，不在每步继续逐档缩小。
+ * 先写租约再写设置/比例，覆盖响应丢失；业务动作仍由原调用链单独决定，不自动重放。
  */
-export async function fitReplayViewport(owner: object, runId: string, page: ReplayPage, deps: Deps) {
+export async function fitReplayViewport(
+  owner: object,
+  runId: string,
+  page: ReplayPage,
+  deps: Deps,
+) {
   let widths = await settledWidths(page, deps);
   const before = widths;
-  if (widths.contentWidth <= widths.viewportWidth + TOLERANCE)
-    return { changed: false, fitted: true, ...widths };
+  const tabs = leases.get(owner) ?? new Map<number, ZoomLease>();
+  leases.set(owner, tabs);
+  let lease = tabs.get(page.tabId);
+  if (lease && lease.documentEpoch !== page.documentEpoch) {
+    tabs.delete(page.tabId);
+    lease = undefined;
+  }
+  const fitted = () => widths.contentWidth <= widths.viewportWidth + TOLERANCE;
+  if (fitted() && !lease) return { changed: false, fitted: true, ...widths };
   const api = deps.zoomApi;
   let zoom = await api.getZoom(page.tabId);
   const settings = await api.getZoomSettings(page.tabId);
   if (!Number.isFinite(zoom) || zoom <= 0) throw new Error("无法读取当前页面缩放");
-  if (settings.mode && settings.mode !== "automatic")
-    return { changed: false, fitted: false, reason: "zoom_disabled", ...widths };
-  const tabs = leases.get(owner) ?? new Map<number, ZoomLease>();
-  leases.set(owner, tabs);
-  let lease = tabs.get(page.tabId);
   if (
     lease &&
-    (lease.documentEpoch !== page.documentEpoch ||
-      Math.abs(zoom - lease.applied) > 0.001 ||
-      settings.scope !== "per-tab")
-  )
+    (settings.mode !== "automatic" ||
+      settings.scope !== "per-tab" ||
+      ![lease.applied, lease.pending].some((v) => v !== undefined && Math.abs(zoom - v) <= 0.001))
+  ) {
+    // 同轮后续步骤不重新接管用户手改，收尾会返回 user_changed。若上轮被中断而
+    // 未能清理，新一轮明确请求可从当前用户比例建立新基线，不能永久卡在旧归属。
+    if (lease.runId === runId)
+      return { changed: false, fitted: fitted(), reason: "user_changed", ...widths };
+    tabs.delete(page.tabId);
     lease = undefined;
+  }
+  if (settings.mode && settings.mode !== "automatic")
+    return { changed: false, fitted: fitted(), reason: "zoom_disabled", ...widths };
+  if (lease) lease.runId = runId;
+  if (fitted()) return { changed: false, fitted: true, ...widths };
+  if (
+    lease?.ineffective &&
+    Math.abs(lease.ineffective.viewportWidth - widths.viewportWidth) <= TOLERANCE &&
+    Math.abs(lease.ineffective.contentWidth - widths.contentWidth) <= TOLERANCE
+  )
+    return { changed: false, fitted: false, reason: "ineffective", ...widths };
   let changed = false;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (widths.contentWidth <= widths.viewportWidth + TOLERANCE) break;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (fitted()) break;
     const next = Math.max(
       MIN_ZOOM,
       Math.floor(((zoom * widths.viewportWidth) / widths.contentWidth) * 100) / 100,
     );
-    // 只缩小，不把用户已经低于下限的页面放大；也不逐档试探或无界缩小。
     if (next >= zoom - 0.005) break;
     await guard(page, deps);
     const current = await api.getZoom(page.tabId);
@@ -162,12 +238,14 @@ export async function fitReplayViewport(owner: object, runId: string, page: Repl
       deps.signal?.throwIfAborted();
       await api.setZoomSettings(page.tabId, { mode: "automatic", scope: "per-tab" });
     }
-    lease.runId = runId;
-    // 等待重排期间其他扩展/用户可能改过缩放范围，不能继续以 per-origin 写入。
     const scoped = await api.getZoomSettings(page.tabId);
     if (scoped.mode !== "automatic" || scoped.scope !== "per-tab")
       throw new Error("缩放范围已变化，停止自动适配");
     await guard(page, deps);
+    // scoped API 等待期间也可能发生手动调整，写入前再核对，不把它覆盖掉。
+    if (Math.abs((await api.getZoom(page.tabId)) - zoom) > 0.001)
+      throw new Error("用户已调整缩放，停止自动适配");
+    deps.signal?.throwIfAborted();
     lease.pending = next;
     await api.setZoom(page.tabId, next);
     lease.applied = next;
@@ -176,13 +254,18 @@ export async function fitReplayViewport(owner: object, runId: string, page: Repl
     zoom = await api.getZoom(page.tabId);
     deps.signal?.throwIfAborted();
     if (Math.abs(zoom - next) > 0.001) throw new Error("缩放结果与请求不符，停止自动适配");
-    const previousOverflow = widths.contentWidth - widths.viewportWidth;
+    const previousRatio = widths.contentWidth / widths.viewportWidth;
     widths = await settledWidths(page, deps, 1500);
-    if (widths.contentWidth - widths.viewportWidth >= previousOverflow - TOLERANCE) break;
+    // 比较比例而非像素差：固定 CSS 容器会随缩放同比变化，却不会多显示任何一列。
+    if (!fitted() && widths.contentWidth / widths.viewportWidth >= previousRatio - 0.005) {
+      lease.ineffective = widths;
+      break;
+    }
+    delete lease.ineffective;
   }
   return {
     changed,
-    fitted: widths.contentWidth <= widths.viewportWidth + TOLERANCE,
+    fitted: fitted(),
     zoom,
     originalZoom: lease?.original ?? zoom,
     before,
@@ -191,22 +274,25 @@ export async function fitReplayViewport(owner: object, runId: string, page: Repl
 }
 
 /**
- * 只恢复本运行仍拥有的缩放。文档变化、用户手改或中断门禁拒绝时不强制覆盖；
- * 必须先在 per-tab 下恢复比例，再恢复原设置，不能以 per-origin 写回污染其他页签。
+ * 只恢复本轮仍拥有的缩放。文档变化、手动修改或写门禁拒绝时不覆盖；恢复到首次
+ * 调整前的比例而不是硬编码 100%。先在 per-tab 下恢复，再恢复设置，避免污染同站点
+ * 其他页签。旧客户端仍可按运行 ID 使用同一协议，不需要重编译已有 Pipeline/Skill。
  */
-export async function restoreReplayViewport(owner: object, runId: string, tabId: number, deps: Deps) {
+export async function restoreReplayViewport(
+  owner: object,
+  runId: string,
+  tabId: number,
+  deps: Deps,
+) {
   const tabs = leases.get(owner);
   const lease = tabs?.get(tabId);
   if (!lease || lease.runId !== runId) return { restored: false, reason: "not_owned" };
   deps.signal?.throwIfAborted();
-  const doc = await deps.cdp.send<{ root: { backendNodeId: number } }>(
-    tabId,
-    "DOM.getDocument",
-    { depth: 0 },
-  );
+  const doc = await deps.cdp.send<{ root: { backendNodeId: number } }>(tabId, "DOM.getDocument", {
+    depth: 0,
+  });
   deps.signal?.throwIfAborted();
   if (doc.root.backendNodeId !== lease.documentEpoch) {
-    // 导航已让 Chrome 重置 per-tab 设置，不再写入新文档，也不误报清理失败。
     tabs?.delete(tabId);
     return { restored: false, reason: "document_changed" };
   }

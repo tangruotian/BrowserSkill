@@ -66,7 +66,7 @@ export interface PipelineParams {
   request: {
     version: 1;
     op: string;
-    /** 宿主回放运行 ID，仅用于临时缩放的清理归属，不是业务动作 ID。 */
+    /** 缩放清理归属：新版为整轮请求 ID，兼容旧运行 ID；不是业务动作/幂等 ID。 */
     runId?: string;
     /** 普通 Agent 页面探测请求同时建立最终输入的文档守卫；旧调用缺省不改变行为。 */
     guard?: boolean;
