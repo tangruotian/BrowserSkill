@@ -1,3 +1,4 @@
+import { type ControllerInfo, controllerColor } from "@/lib/controller-info";
 import {
   AGENT_WINDOW_HOME,
   type AgentWindowApi,
@@ -15,6 +16,9 @@ export type SessionMode = "agent_window" | "current_tab";
 export interface SessionContext {
   /** 普通 Agent 当前观察建立的输入边界；连接、页签、文档任一变化都拒绝旧动作。 */
   browserGuard?: { tabId: number; documentEpoch: number; attachmentId?: string };
+  controller?: ControllerInfo;
+  /** Incognito sessions cannot borrow user tabs. Absent means a normal window. */
+  incognito?: boolean;
   /** Remote connections retain dedicated windows, with explicit page ownership. */
   remote?: boolean;
   sessionId: string;
@@ -26,6 +30,8 @@ export interface SessionContext {
   /** Whether startup replaced a restricted active tab with a new work tab. */
   fallbackCreated: boolean;
   refStore: RefStore;
+  /** Negotiated once per session; omitted clients retain strict observations. */
+  controlPolicy?: "strict" | "target";
   borrowedTabs: Map<number, BorrowedTab>;
   /**
    * Tabs explicitly claimed by the agent because it created them. This
@@ -51,10 +57,30 @@ export function isAgentControlledTab(ctx: SessionContext, tabId: number): boolea
   );
 }
 
+export interface BorrowedTabGroupMetadata {
+  title?: string;
+  color?: chrome.tabGroups.ColorEnum;
+  collapsed?: boolean;
+}
+
 export interface BorrowedTab {
   tabId: number;
   originalWindowId: number;
   originalIndex: number;
+  /** Left-hand neighbor tab ID in the original window at borrow time. */
+  leftNeighborTabId?: number;
+  /** Right-hand neighbor tab ID in the original window at borrow time. */
+  rightNeighborTabId?: number;
+  /** Ordered left-hand neighbor tab IDs (closest to farthest) in the original window. */
+  leftNeighborTabIds?: number[];
+  /** Ordered right-hand neighbor tab IDs (closest to farthest) in the original window. */
+  rightNeighborTabIds?: number[];
+  /** Original Chrome Tab Group ID (>= 0 when grouped). */
+  originalGroupId?: number;
+  /** Snapshot of the original Tab Group's properties for recreating single-tab groups. */
+  originalGroup?: BorrowedTabGroupMetadata;
+  /** Whether the tab was pinned in the original window before borrowing. */
+  originalPinned?: boolean;
 }
 
 export interface BorrowReservation {
@@ -77,6 +103,9 @@ export interface SessionStartOptions {
   attachTabId?: number;
   /** Defaults to the isolated Agent Window mode for backward compatibility. */
   mode?: SessionMode;
+  controller?: ControllerInfo;
+  /** Use Chrome's shared incognito browsing session. */
+  incognito?: boolean;
   /** Optional Agent Window outer size in CSS pixels. */
   size?: { width: number; height: number };
   /** Background by default; true explicitly opens the window in front. */
@@ -339,6 +368,8 @@ export class SessionManager {
     }
 
     if (opts.mode === "current_tab") {
+      // 附着模式不会创建无痕窗口，不能声称兑现 incognito 隔离。
+      if (opts.incognito) throw new Error("incognito is unavailable for current_tab sessions");
       if (opts.attachTabId !== undefined && !this.currentTab.getTab)
         throw new Error("当前执行器不支持精确页签附着");
       const originalTarget =
@@ -376,6 +407,7 @@ export class SessionManager {
         const ctx: SessionContext = {
           sessionId,
           mode: "current_tab",
+          controller: this.controllerFor(sessionId, opts.controller),
           agentWindowId: target.windowId,
           attachedTabId: target.tabId,
           fallbackCreated,
@@ -404,6 +436,7 @@ export class SessionManager {
     try {
       const {
         signal: _signal,
+        controller: _controller,
         mode: _mode,
         attachTabId: _attachTabId,
         newTab: _newTab,
@@ -412,6 +445,11 @@ export class SessionManager {
       const created = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
       windowId = created.windowId;
       for (const tabId of created.initialTabIds) agentCreatedTabs.add(tabId);
+      if (opts.incognito && !created.incognito) {
+        throw new Error(
+          "The browser did not create an incognito Agent Window; session start refused.",
+        );
+      }
       throwIfSessionStartAborted(opts.signal);
       const homeTabId = await this.agentWindow.ensureActiveTab(
         windowId,
@@ -422,6 +460,8 @@ export class SessionManager {
       throwIfSessionStartAborted(opts.signal);
 
       const ctx: SessionContext = {
+        controller: this.controllerFor(sessionId, opts.controller),
+        incognito: created.incognito ?? false,
         ...(this.remote() ? { remote: true } : {}),
         sessionId,
         mode: "agent_window",
@@ -446,6 +486,8 @@ export class SessionManager {
           // The daemon may retry stop after a failed startup rollback. Retain
           // the exact window handle until closure is confirmed.
           const pending: SessionContext = {
+            controller: this.controllerFor(sessionId, opts.controller),
+            incognito: opts.incognito ?? false,
             ...(this.remote() ? { remote: true } : {}),
             sessionId,
             // 启动回滚失败仍属于独立窗口；重试 stop 必须真正关闭它，
@@ -467,6 +509,21 @@ export class SessionManager {
     }
   }
 
+  private controllerFor(
+    sessionId: string,
+    controller?: ControllerInfo,
+  ): ControllerInfo | undefined {
+    if (!controller) return undefined;
+    return {
+      ...controller,
+      color: controllerColor(
+        sessionId,
+        controller,
+        Array.from(this.sessions.values(), (ctx) => ctx.controller?.color),
+      ),
+    };
+  }
+
   /**
    * Tear down a session: close its Agent Window and drop the context.
    *
@@ -483,9 +540,20 @@ export class SessionManager {
     if (ctx.mode === "agent_window" && !options.dropOnly) {
       await this.agentWindow.remove(ctx.agentWindowId);
     }
+    if (this.sessions.get(sessionId) === ctx) this.release(sessionId);
+    return ctx;
+  }
+
+  /** End ownership synchronously, without moving or closing any browser page. */
+  release(sessionId: string): SessionContext | null {
+    const ctx = this.sessions.get(sessionId);
+    if (!ctx) return null;
     this.sessions.delete(sessionId);
     if (ctx.mode === "agent_window") this.windowIndex.delete(ctx.agentWindowId);
     if (ctx.attachedTabId !== undefined) this.attachedTabIndex.delete(ctx.attachedTabId);
+    for (const [tabId, owner] of this.borrowReservations) {
+      if (owner === sessionId) this.borrowReservations.delete(tabId);
+    }
     return ctx;
   }
 

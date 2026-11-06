@@ -121,7 +121,7 @@ export class RecordingObservationSession {
       op: draft.op,
       line: ref.line,
       stateId: observation.stateId,
-      ...(draft.op === "fill" && !this.#redactValues
+      ...(draft.op === "fill" && !this.#redactValues && !draft.redacted
         ? { detail: JSON.stringify(draft.value) }
         : {}),
     });

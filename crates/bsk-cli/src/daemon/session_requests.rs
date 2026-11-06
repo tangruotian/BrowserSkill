@@ -506,6 +506,7 @@ mod ownership_tests {
 
     fn session(id: &str, window: i64) -> Session {
         Session {
+            controller: None,
             id: SessionId(id.into()),
             browser_id: BrowserId("browser".into()),
             // 此夹具模拟独立窗口；当前页签信息不得由窗口 id 推断。

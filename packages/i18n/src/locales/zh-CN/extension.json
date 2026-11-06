@@ -1,8 +1,32 @@
 {
+  "cooperation": {
+    "yielding": "Agent 正在停手",
+    "label": "人机协作",
+    "ready": "Agent 已就绪",
+    "acting": "Agent 正在操作",
+    "human": "现在由你操作",
+    "editing": "你正在编辑",
+    "held": "Agent 已暂停",
+    "syncing": "Agent 正在同步",
+    "unavailable": "页面暂不可观察",
+    "hold": "暂停 Agent",
+    "resume": "交给 Agent",
+    "stop": "停止任务",
+    "hints": {
+      "ready": "你可以随时接手",
+      "acting": "你可以随时接手",
+      "human": "停止操作后，Agent 会继续",
+      "editing": "完成编辑后交给 Agent",
+      "held": "准备好后交给 Agent",
+      "yielding": "等待当前操作结束",
+      "syncing": "正在读取最新页面状态",
+      "unavailable": "Agent 已停手"
+    }
+  },
   "popup": {
     "interactionCompatibilityWarning": "已连接到旧版 Daemon（协议 v{{cliProtocol}}）。部分自动化设置需要更新 CLI 和 Daemon 才能完整生效。",
     "brandCategory": "Browser Automation",
-    "brandName": "BrowserSkill",
+    "brandName": "bkw-ai-saas",
     "stateLabel": {
       "disconnected": "未连接",
       "connecting": "连接中…",
@@ -11,8 +35,8 @@
       "disabled": "连接已关闭"
     },
     "stateDetail": {
-      "disconnected": "请先打开 BrowserSkill。",
-      "connecting": "正在连接 BrowserSkill…",
+      "disconnected": "请先打开 bkw-ai-saas。",
+      "connecting": "正在连接 bkw-ai-saas…",
       "connected": "可接收自动化任务。",
       "version_skew": "协议版本不同，请及时升级。"
     },
@@ -23,7 +47,7 @@
       "version_skew": "可升级",
       "disabled": "Off"
     },
-    "connectionToggleTitle": "BrowserSkill 连接",
+    "connectionToggleTitle": "bkw-ai-saas 连接",
     "controlHintsToggleTitle": "控制提示",
     "controlHintsToggleHint": "Agent 控制页面时显示提示条和橙色闪光。",
     "controlHintsInfoLabel": "控制提示说明",
@@ -59,7 +83,7 @@
       "title": "浏览器名称",
       "placeholder": "例如：工作账号",
       "save": "保存",
-      "hint": "使用唯一名称，方便向 Agent 指定浏览器。保存时 BrowserSkill 会短暂重连。",
+      "hint": "使用唯一名称，方便向 Agent 指定浏览器。保存时 bkw-ai-saas 会短暂重连。",
       "busyHint": "当前浏览器有任务运行，任务结束后可修改名称。",
       "instanceIdError": "名称不能使用 8 位十六进制实例 ID 格式。",
       "edit": "修改浏览器名称",
@@ -76,7 +100,7 @@
       "copyButton": "复制录制指令",
       "copied": "已复制",
       "hintDisconnected": "连接后可用",
-      "promptTemplate": "用 BrowserSkill 的 `bsk` CLI 录制我接下来的浏览器操作。\n\n步骤：\n1. 执行：{{command}}\n2. 你确认已开始后，我会在打开的窗口里自己操作。\n3. 我点“结束”后，读取写出的 `./trace` 目录包（`trace.json` + `states/`），总结我做了什么。"
+      "promptTemplate": "用 bkw-ai-saas 的 `bsk` CLI 录制我接下来的浏览器操作。\n\n步骤：\n1. 执行：{{command}}\n2. 你确认已开始后，我会在打开的窗口里自己操作。\n3. 我点“结束”后，读取写出的 `./trace` 目录包（`trace.json` + `states/`），总结我做了什么。"
     },
     "interaction": {
       "title": "自动化设置",
@@ -130,12 +154,30 @@
       "unavailableHint": "将此浏览器个人资料连接到 bsk 后即可复制指令。",
       "copyButton": "复制指令",
       "copyFailed": "复制指令失败，请重试。",
-      "promptTemplate": "本次任务使用 BrowserSkill 的浏览器 {{name}}（实例 ID：{{instanceId}}）。为本次任务创建每个新会话时，请使用对应接口：\nCLI：{{command}}\nDeepSeek Harness：{{toolCall}}\n在 DeepSeek Harness 中请使用工具调用，不要另行执行 CLI 命令。\n如果此实例未连接，请停止并让我重新连接此 Profile。不要省略 --browser / browser，也不要切换到其他实例。",
+      "promptTemplate": "本次任务使用 bkw-ai-saas 的浏览器 {{name}}（实例 ID：{{instanceId}}）。为本次任务创建每个新会话时，请使用对应接口：\nCLI：{{command}}\nDeepSeek Harness：{{toolCall}}\n在 DeepSeek Harness 中请使用工具调用，不要另行执行 CLI 命令。\n如果此实例未连接，请停止并让我重新连接此 Profile。不要省略 --browser / browser，也不要切换到其他实例。",
       "title": "当前浏览器",
       "unnamed": "未命名浏览器"
+    },
+    "daemonUpgrade": {
+      "title": "需要升级 bsk 浏览器服务",
+      "description": "正在运行的 bsk 服务（daemon）版本过旧，浏览器任务暂时无法执行。",
+      "runCommand": "请在运行该服务的电脑上打开终端，执行：",
+      "restart": "若已更新仍出现此提示，请通过启动该服务的终端或宿主应用重启服务。",
+      "copyButton": "复制命令",
+      "copyFailed": "复制失败，请手动复制上方命令。",
+      "details": "查看技术详情",
+      "protocols": "服务协议：{{actual}}；扩展要求：{{required}} 或更新的兼容协议。",
+      "version": "当前运行：bsk {{version}}",
+      "notificationMessage": "浏览器任务暂不可用。请在运行 bsk 浏览器服务的电脑上升级 bsk，并确认正在运行的服务也已更新。",
+      "toolbarTitle": "bkw-ai-saas：需要升级 bsk 浏览器服务",
+      "notificationButton": "查看升级步骤"
     }
   },
   "controlOverlay": {
+    "project": "项目",
+    "session": "会话",
+    "holdController": "暂停 {{name}}",
+    "resumeController": "交给 {{name}}",
     "status": "Agent 正在控制",
     "interrupt": "中断",
     "interrupting": "中断中…"
@@ -148,7 +190,7 @@
     "autoDeny": "{{count}} 秒后自动拒绝",
     "deny": "拒绝",
     "allow": "允许",
-    "notificationTitle": "BrowserSkill：Agent 请求借用标签页",
+    "notificationTitle": "bkw-ai-saas：Agent 请求借用标签页",
     "notificationBody": "请在浏览器中允许或拒绝对「{{tabTitle}}」的借用。"
   },
   "helpRequest": {
@@ -161,7 +203,7 @@
     "collapse": "折叠",
     "expand": "展开",
     "dragHandle": "拖动以移动",
-    "notificationTitle": "BrowserSkill：Agent 需要你的帮助"
+    "notificationTitle": "bkw-ai-saas：Agent 需要你的帮助"
   },
   "recordOverlay": {
     "recording": "正在录制你的操作",
@@ -243,8 +285,8 @@
     "partialLabel": "部分记录",
     "partialDescription": "本次审计从 {{time}} 开始。中途暂停的时间段未记录，具体位置见下方时间线。",
     "inputRedacted": "输入内容已隐藏",
-    "empty": "还没有任务记录。后续通过 BrowserSkill 执行的操作会显示在这里。",
-    "disconnected": "本地服务未连接。启动 BrowserSkill 本地服务后重试，已有记录仍保存在电脑上。",
+    "empty": "还没有任务记录。后续通过 bkw-ai-saas 执行的操作会显示在这里。",
+    "disconnected": "本地服务未连接。启动 bkw-ai-saas 本地服务后重试，已有记录仍保存在电脑上。",
     "unsupported": "当前本地服务尚不支持操作审计，请更新 bsk 后重试。",
     "requestFailed": "无法读取或保存审计记录。请检查本地存储，确认任务仍存在且未在执行后重试。",
     "privacyShort": "仅保存在本机，默认保留 30 天。输入内容已隐藏。",
@@ -291,6 +333,7 @@
       "press": "按键",
       "select": "选择选项",
       "hover": "悬停",
+      "drag": "拖动",
       "focus": "聚焦",
       "blur": "移开焦点",
       "scroll": "滚动",
@@ -337,7 +380,7 @@
     "disconnected": "等待浏览器连接后开启调试。",
     "emptyTitle": "从一个调试任务开始",
     "emptyHelp": "把网站地址和遇到的问题告诉 Agent，它会建立任务并开启采集。",
-    "prompt": "请使用 BrowserSkill 开启网站调试，在访问页面和复现问题前开始采集。记录请求、响应、Console 和页面上下文，结合证据分析问题。结束后停止采集，导出调试结果供我查看。",
+    "prompt": "请使用 bkw-ai-saas 开启网站调试，在访问页面和复现问题前开始采集。记录请求、响应、Console 和页面上下文，结合证据分析问题。结束后停止采集，导出调试结果供我查看。",
     "copyPrompt": "复制给 Agent 的指令",
     "copied": "已复制",
     "copyFailed": "复制失败，请重试。",

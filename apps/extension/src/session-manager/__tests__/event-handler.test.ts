@@ -149,7 +149,8 @@ describe("attachSessionEventHandler", () => {
     attachSessionEventHandler({
       manager,
       transport,
-      tabEvents: tabEvents.api,
+      // 0.4.2 使用完整页签事件接口；此用例只触发绑定页关闭，其他事件保持独立。
+      tabEvents: { onRemoved: tabEvents.api, onAttached: { addListener: vi.fn(), removeListener: vi.fn() }, onDetached: { addListener: vi.fn(), removeListener: vi.fn() } },
       windowEvents: windowEvents.api,
     });
     tabEvents.emit(60);

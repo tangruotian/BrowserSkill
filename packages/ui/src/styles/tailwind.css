@@ -2,46 +2,47 @@
 @import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
 
+/* bkw-ai-saas 蓝色主题：浅色/深色共用语义 token；危险动作保留红色提示。 */
 :root {
   color-scheme: light dark;
-  --background: oklch(0.99 0.005 50);
-  --foreground: oklch(0.14 0.03 50);
-  --card: oklch(0.995 0.003 50 / 0.82);
-  --card-foreground: oklch(0.14 0.03 50);
-  --primary: oklch(0.62 0.22 45);
-  --primary-foreground: oklch(0.99 0.01 50);
-  --secondary: oklch(0.96 0.04 65);
-  --secondary-foreground: oklch(0.25 0.08 65);
-  --muted: oklch(0.96 0.01 50);
-  --muted-foreground: oklch(0.55 0.04 50);
-  --accent: oklch(0.96 0.04 65);
-  --accent-foreground: oklch(0.25 0.08 65);
+  --background: oklch(0.985 0.008 255);
+  --foreground: oklch(0.2 0.035 260);
+  --card: oklch(0.995 0.005 255 / 0.82);
+  --card-foreground: oklch(0.2 0.035 260);
+  --primary: oklch(0.54 0.2 260);
+  --primary-foreground: oklch(0.99 0.005 255);
+  --secondary: oklch(0.94 0.035 255);
+  --secondary-foreground: oklch(0.32 0.09 260);
+  --muted: oklch(0.96 0.012 255);
+  --muted-foreground: oklch(0.5 0.035 255);
+  --accent: oklch(0.94 0.035 255);
+  --accent-foreground: oklch(0.32 0.09 260);
   --destructive: oklch(0.6 0.25 25);
-  --destructive-foreground: oklch(0.99 0.01 50);
-  --border: oklch(0.9 0.025 60);
-  --input: oklch(0.9 0.025 60);
-  --ring: oklch(0.62 0.22 45);
+  --destructive-foreground: oklch(0.99 0.005 255);
+  --border: oklch(0.89 0.025 255);
+  --input: oklch(0.89 0.025 255);
+  --ring: oklch(0.54 0.2 260);
   --radius: 0.75rem;
 }
 
 .dark {
-  --background: oklch(0.2 0.02 50);
-  --foreground: oklch(0.98 0.01 50);
-  --card: oklch(0.24 0.02 50 / 0.82);
-  --card-foreground: oklch(0.98 0.01 50);
-  --primary: oklch(0.7 0.18 45);
-  --primary-foreground: oklch(0.14 0.03 50);
-  --secondary: oklch(0.32 0.03 60);
-  --secondary-foreground: oklch(0.98 0.01 50);
-  --muted: oklch(0.3 0.02 50);
-  --muted-foreground: oklch(0.75 0.03 50);
-  --accent: oklch(0.32 0.03 60);
-  --accent-foreground: oklch(0.98 0.01 50);
+  --background: oklch(0.2 0.025 260);
+  --foreground: oklch(0.97 0.012 255);
+  --card: oklch(0.24 0.03 260 / 0.82);
+  --card-foreground: oklch(0.97 0.012 255);
+  --primary: oklch(0.72 0.14 250);
+  --primary-foreground: oklch(0.2 0.035 260);
+  --secondary: oklch(0.31 0.055 255);
+  --secondary-foreground: oklch(0.97 0.012 255);
+  --muted: oklch(0.3 0.025 255);
+  --muted-foreground: oklch(0.75 0.035 255);
+  --accent: oklch(0.31 0.055 255);
+  --accent-foreground: oklch(0.97 0.012 255);
   --destructive: oklch(0.45 0.2 25);
-  --destructive-foreground: oklch(0.98 0.01 50);
-  --border: oklch(0.35 0.02 60);
-  --input: oklch(0.35 0.02 60);
-  --ring: oklch(0.7 0.18 45);
+  --destructive-foreground: oklch(0.97 0.012 255);
+  --border: oklch(0.36 0.035 255);
+  --input: oklch(0.36 0.035 255);
+  --ring: oklch(0.72 0.14 250);
 }
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);

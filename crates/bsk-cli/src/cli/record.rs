@@ -2,7 +2,6 @@
 //! the user's current tab with `record start --attach-current-tab`.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anyhow::Context;
 use bsk_protocol::tools::{
@@ -16,7 +15,7 @@ use crate::cli::TOOL_IPC_TIMEOUT;
 
 mod export;
 
-use crate::cli::business_rpc;
+use crate::cli::business_rpc::{self, ipc_timeout};
 use crate::cli::ensure_daemon::ensure_daemon;
 use crate::cli::error::{CliError, Format};
 use crate::cli::record_recovery;
@@ -184,7 +183,7 @@ fn dispatch_start(args: RecordStartArgs, format: Format) -> Result<(), CliError>
         "record-await",
         Method::ToolRecordAwait,
         Some(await_params),
-        record_await_ipc_timeout(RECORD_AWAIT_TIMEOUT_MS),
+        ipc_timeout(RECORD_AWAIT_TIMEOUT_MS),
     );
 
     // Keep write/render inside a Result so `?` cannot skip session teardown.
@@ -323,12 +322,6 @@ fn prepare_record_start(output: &Path) -> Result<(), CliError> {
         )));
     }
     validate_record_output(output)
-}
-
-fn record_await_ipc_timeout(timeout_ms: u32) -> Duration {
-    Duration::from_millis(u64::from(timeout_ms))
-        .checked_add(Duration::from_secs(15))
-        .unwrap_or(Duration::from_secs(u64::from(timeout_ms / 1_000) + 15))
 }
 
 fn render_finish(
@@ -545,8 +538,8 @@ mod tests {
 
     #[test]
     fn record_await_ipc_timeout_covers_long_wait() {
-        let got = record_await_ipc_timeout(RECORD_AWAIT_TIMEOUT_MS);
-        assert!(got >= Duration::from_secs(86_400));
+        let got = ipc_timeout(RECORD_AWAIT_TIMEOUT_MS);
+        assert!(got >= std::time::Duration::from_secs(86_400));
     }
 
     #[test]

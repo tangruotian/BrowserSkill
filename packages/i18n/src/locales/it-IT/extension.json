@@ -1,8 +1,32 @@
 {
+  "cooperation": {
+    "yielding": "Agent sta aspettando",
+    "label": "Controllo condiviso del browser",
+    "ready": "Agent è pronto",
+    "acting": "Agent sta lavorando",
+    "human": "Hai il controllo",
+    "editing": "Stai modificando",
+    "held": "Agent è in pausa",
+    "syncing": "Agent sta sincronizzando",
+    "unavailable": "Pagina non disponibile",
+    "hold": "Metti Agent in pausa",
+    "resume": "Restituisci ad Agent",
+    "stop": "Interrompi attività",
+    "hints": {
+      "ready": "Puoi intervenire in qualsiasi momento",
+      "acting": "Puoi intervenire in qualsiasi momento",
+      "human": "Agent riprende quando smetti di interagire",
+      "editing": "Restituisci il controllo ad Agent quando hai finito",
+      "held": "Restituisci il controllo ad Agent quando sei pronto",
+      "yielding": "In attesa che termini l’azione in corso",
+      "syncing": "Lettura dello stato attuale della pagina",
+      "unavailable": "Agent ha smesso di interagire"
+    }
+  },
   "popup": {
     "interactionCompatibilityWarning": "Connesso a un daemon precedente (protocollo v{{cliProtocol}}). Aggiorna la CLI e il daemon per supportare completamente le impostazioni di automazione.",
     "brandCategory": "Automazione del browser",
-    "brandName": "BrowserSkill",
+    "brandName": "bkw-ai-saas",
     "stateLabel": {
       "disconnected": "Disconnesso",
       "connecting": "Connessione…",
@@ -11,8 +35,8 @@
       "disabled": "Connessione disattivata"
     },
     "stateDetail": {
-      "disconnected": "Apri BrowserSkill per connetterti.",
-      "connecting": "Connessione a BrowserSkill…",
+      "disconnected": "Apri bkw-ai-saas per connetterti.",
+      "connecting": "Connessione a bkw-ai-saas…",
       "connected": "Pronto per le attività di automazione.",
       "version_skew": "Le versioni del protocollo sono diverse. Aggiorna."
     },
@@ -23,7 +47,7 @@
       "version_skew": "Aggiornabile",
       "disabled": "Disattivato"
     },
-    "connectionToggleTitle": "Connessione BrowserSkill",
+    "connectionToggleTitle": "Connessione bkw-ai-saas",
     "controlHintsToggleTitle": "Indicatori di controllo",
     "controlHintsToggleHint": "Mostra l'indicatore di stato e il bagliore arancione mentre l'agente controlla una pagina.",
     "controlHintsInfoLabel": "Informazioni sugli indicatori di controllo",
@@ -59,7 +83,7 @@
       "title": "Nome del browser",
       "placeholder": "es. Profilo di lavoro",
       "save": "Salva",
-      "hint": "Usa un nome univoco per indicare questo browser al tuo agente. Il salvataggio riconnette brevemente BrowserSkill.",
+      "hint": "Usa un nome univoco per indicare questo browser al tuo agente. Il salvataggio riconnette brevemente bkw-ai-saas.",
       "busyHint": "Attendi che le attività del browser in corso terminino prima di modificare questo nome.",
       "instanceIdError": "Scegli un nome diverso da un ID istanza esadecimale di 8 caratteri.",
       "edit": "Rinomina browser",
@@ -76,7 +100,7 @@
       "copyButton": "Copia le istruzioni di registrazione",
       "copied": "Copiato",
       "hintDisconnected": "Disponibile una volta connesso",
-      "promptTemplate": "Usa la CLI `bsk` di BrowserSkill per registrare le azioni del browser che sto per mostrare.\n\nPassaggi:\n1. Esegui: {{command}}\n2. Una volta confermato l'avvio, opererò io stesso nella finestra aperta.\n3. Dopo aver cliccato su Fine, leggi il pacchetto `./trace` scritto (`trace.json` + `states/`) e riassumi cosa ho fatto."
+      "promptTemplate": "Usa la CLI `bsk` di bkw-ai-saas per registrare le azioni del browser che sto per mostrare.\n\nPassaggi:\n1. Esegui: {{command}}\n2. Una volta confermato l'avvio, opererò io stesso nella finestra aperta.\n3. Dopo aver cliccato su Fine, leggi il pacchetto `./trace` scritto (`trace.json` + `states/`) e riassumi cosa ho fatto."
     },
     "interaction": {
       "title": "Impostazioni di automazione",
@@ -97,13 +121,13 @@
     "remoteError": "Associazione non completata. Controlla la connessione al server o prova un nuovo link di associazione.",
     "remoteNeedsAttention": "Richiede attenzione",
     "remoteUnknown": "Impostazioni di connessione non disponibili",
-    "remoteStorageError": "Impossibile leggere le impostazioni di connessione. BrowserSkill riproverà. Puoi selezionare esplicitamente il daemon locale per ripristinare.",
+    "remoteStorageError": "Impossibile leggere le impostazioni di connessione. bkw-ai-saas riproverà. Puoi selezionare esplicitamente il daemon locale per ripristinare.",
     "remoteExpires": "L'autorizzazione scade: {{date}}",
     "remoteRenewing": "Rinnovo dell'autorizzazione del browser…",
-    "remoteRenewalFailed": "Il rinnovo non è riuscito a raggiungere il servizio o a completarsi correttamente. BrowserSkill riproverà; l'autorizzazione attuale resta utilizzabile fino alla scadenza.",
+    "remoteRenewalFailed": "Il rinnovo non è riuscito a raggiungere il servizio o a completarsi correttamente. bkw-ai-saas riproverà; l'autorizzazione attuale resta utilizzabile fino alla scadenza.",
     "remoteRejected": "Il server ha rifiutato l'autorizzazione. Controlla il server o usa un nuovo link di associazione.",
     "remoteExpired": "L'autorizzazione è scaduta. Usa un nuovo link di associazione per riconnetterti.",
-    "remoteUnconfirmed": "L'ultima autorizzazione confermata è scaduta, ma un rinnovo potrebbe essere riuscito. BrowserSkill sta ritentando il rinnovo in sospeso; controlla il server se il problema persiste.",
+    "remoteUnconfirmed": "L'ultima autorizzazione confermata è scaduta, ma un rinnovo potrebbe essere riuscito. bkw-ai-saas sta ritentando il rinnovo in sospeso; controlla il server se il problema persiste.",
     "connectionSettings": "Impostazioni di connessione",
     "connectionMode": "Modalità di connessione",
     "connectionLocal": "Locale",
@@ -130,12 +154,30 @@
       "unavailableHint": "Collega questo profilo del browser a bsk per copiarne le istruzioni.",
       "copyButton": "Copia istruzioni",
       "copyFailed": "Impossibile copiare le istruzioni. Riprova.",
-      "promptTemplate": "Per questa attività, usa BrowserSkill nel browser {{name}} (ID istanza: {{instanceId}}). Avvia ogni nuova sessione di questa attività con l'interfaccia appropriata:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nIn DeepSeek Harness, chiama lo strumento senza eseguire separatamente il comando CLI.\nSe questa istanza non è connessa, fermati e chiedimi di riconnettere questo profilo. Non omettere --browser / browser e non passare a un'altra istanza.",
+      "promptTemplate": "Per questa attività, usa bkw-ai-saas nel browser {{name}} (ID istanza: {{instanceId}}). Avvia ogni nuova sessione di questa attività con l'interfaccia appropriata:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nIn DeepSeek Harness, chiama lo strumento senza eseguire separatamente il comando CLI.\nSe questa istanza non è connessa, fermati e chiedimi di riconnettere questo profilo. Non omettere --browser / browser e non passare a un'altra istanza.",
       "title": "Browser attuale",
       "unnamed": "Browser senza nome"
+    },
+    "daemonUpgrade": {
+      "title": "Aggiorna il servizio browser bsk",
+      "description": "Il servizio bsk (daemon) in esecuzione è troppo vecchio. Le attività del browser richiedono il suo aggiornamento.",
+      "runCommand": "Apri un terminale sul computer che esegue questo servizio ed esegui:",
+      "restart": "Se questo avviso rimane dopo l’aggiornamento, riavvia il servizio dal terminale o dall’applicazione host che lo ha avviato.",
+      "copyButton": "Copia comando",
+      "copyFailed": "Copia non riuscita. Copia manualmente il comando qui sopra.",
+      "details": "Dettagli tecnici",
+      "protocols": "Protocollo del servizio: {{actual}}. L’estensione richiede {{required}} o un protocollo compatibile più recente.",
+      "version": "Attualmente in esecuzione: bsk {{version}}",
+      "notificationMessage": "Le attività del browser non sono disponibili. Aggiorna bsk sul computer che esegue il servizio browser e verifica che anche il servizio in esecuzione sia aggiornato.",
+      "toolbarTitle": "bkw-ai-saas: aggiorna il servizio browser bsk",
+      "notificationButton": "Visualizza come aggiornare"
     }
   },
   "controlOverlay": {
+    "project": "Progetto",
+    "session": "Sessione",
+    "holdController": "Sospendi {{name}}",
+    "resumeController": "Riprendi {{name}}",
     "status": "L'agente sta controllando",
     "interrupt": "Interrompi",
     "interrupting": "Interruzione…"
@@ -148,7 +190,7 @@
     "autoDeny": "La richiesta scade tra {{count}} s",
     "deny": "Rifiuta",
     "allow": "Consenti",
-    "notificationTitle": "BrowserSkill: l'agente vuole prendere in prestito una scheda",
+    "notificationTitle": "bkw-ai-saas: l'agente vuole prendere in prestito una scheda",
     "notificationBody": "Approva o rifiuta il prestito di «{{tabTitle}}» nel tuo browser."
   },
   "helpRequest": {
@@ -161,7 +203,7 @@
     "collapse": "Comprimi",
     "expand": "Espandi",
     "dragHandle": "Trascina per spostare",
-    "notificationTitle": "BrowserSkill: l'agente ha bisogno del tuo aiuto"
+    "notificationTitle": "bkw-ai-saas: l'agente ha bisogno del tuo aiuto"
   },
   "recordOverlay": {
     "recording": "Registrazione delle tue azioni",
@@ -243,8 +285,8 @@
     "partialLabel": "Cronologia parziale",
     "partialDescription": "La registrazione è iniziata alle {{time}}. Gli intervalli in pausa non sono stati registrati; consulta la sequenza temporale qui sotto.",
     "inputRedacted": "Contenuto di input nascosto",
-    "empty": "Nessuna attività registrata finora. Le future operazioni di BrowserSkill appariranno qui.",
-    "disconnected": "Il servizio locale è disconnesso. Avvia il servizio BrowserSkill e riprova. La cronologia esistente resta sul tuo computer.",
+    "empty": "Nessuna attività registrata finora. Le future operazioni di bkw-ai-saas appariranno qui.",
+    "disconnected": "Il servizio locale è disconnesso. Avvia il servizio bkw-ai-saas e riprova. La cronologia esistente resta sul tuo computer.",
     "unsupported": "Questo servizio locale non supporta il controllo delle operazioni. Aggiorna bsk e riprova.",
     "requestFailed": "Impossibile leggere o salvare la cronologia di controllo. Verifica l'archiviazione locale e la disponibilità dell'attività, oppure riprova dopo il termine dell'attività.",
     "privacyShort": "Salvato localmente per 30 giorni. Il contenuto di input è nascosto.",
@@ -291,6 +333,7 @@
       "press": "Premi tasto",
       "select": "Seleziona opzione",
       "hover": "Passa sopra",
+      "drag": "Trascinare",
       "focus": "Attiva focus",
       "blur": "Rimuovi focus",
       "scroll": "Scorri",
@@ -337,7 +380,7 @@
     "disconnected": "Connetti il browser per avviare il debug.",
     "emptyTitle": "Inizia con un'attività di debug",
     "emptyHelp": "Indica all'agente il sito web e il problema. Può creare un'attività e avviare l'acquisizione.",
-    "prompt": "Usa il debug dei siti web di BrowserSkill. Avvia l'acquisizione prima di visitare la pagina e riprodurre il problema. Registra richieste, risposte, console e contesto della pagina; analizza il problema sulla base dei dati raccolti. Arresta l'acquisizione ed esporta i risultati affinché io possa consultarli.",
+    "prompt": "Usa il debug dei siti web di bkw-ai-saas. Avvia l'acquisizione prima di visitare la pagina e riprodurre il problema. Registra richieste, risposte, console e contesto della pagina; analizza il problema sulla base dei dati raccolti. Arresta l'acquisizione ed esporta i risultati affinché io possa consultarli.",
     "copyPrompt": "Copia istruzioni per l'agente",
     "copied": "Copiato",
     "copyFailed": "Copia non riuscita. Riprova.",

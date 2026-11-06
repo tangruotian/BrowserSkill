@@ -118,6 +118,26 @@ fn receipt(reply: EvaluateResult, is_call: bool) -> Value {
     }
     value
 }
+/// 0.4.2 的共享控制可能在脚本派发前拒绝请求。仅信任结构化 effect_state=none；
+/// 无此证明的 IPC/执行错误仍按 unknown 处理，避免 Agent 重复提交业务写入。
+/// 不回显原始错误载荷，防止页面内容或敏感字段进入通用失败回执。
+fn rpc_failure(error: &CliError, is_call: bool) -> Value {
+    if error
+        .data()
+        .is_some_and(|data| data["effect_state"] == "none")
+    {
+        return failure(
+            "precondition_failed",
+            "调用在执行前被拒绝；请 cooperate sync 检查控制状态和页面，再决定下一步。",
+            false,
+        );
+    }
+    failure(
+        "transport_failed",
+        "浏览器调用中断或取消；请检查连接并核对业务状态。",
+        is_call,
+    )
+}
 fn execute(args: WebMcpArgs) -> anyhow::Result<Value> {
     let (target, mut request, is_call) = match args.sub {
         WebMcpSub::List(target) => (target, json!({"action":"list"}), false),
@@ -160,12 +180,7 @@ fn execute(args: WebMcpArgs) -> anyhow::Result<Value> {
     );
     Ok(match result {
         Ok(reply) => receipt(reply, is_call),
-        // 不回显底层页面异常/网络载荷，保留统一可判断的副作用边界。
-        Err(_) => failure(
-            "transport_failed",
-            "浏览器调用中断或取消；请检查连接并核对业务状态。",
-            is_call,
-        ),
+        Err(error) => rpc_failure(&error, is_call),
     })
 }
 pub fn dispatch(args: WebMcpArgs, _format: Format) -> Result<(), CliError> {
@@ -251,5 +266,40 @@ mod tests {
         assert!(expression(&input).ends_with(&format!("({input})")));
         args.input = Some("x".repeat(INPUT_LIMIT + 1));
         assert!(read_input(&args).is_err());
+    }
+    /// 前置控制拒绝与连接断开必须可区分；不能仅凭错误文案推断业务没有执行。
+    #[test]
+    fn respects_explicit_no_effect_without_guessing_transport_outcome() {
+        let denied = CliError::Rpc {
+            code: bsk_protocol::ErrorCode::InvalidParams,
+            message: "private page details".into(),
+            data: Some(json!({"effect_state":"none"})),
+            source: None,
+        };
+        let value = rpc_failure(&denied, true);
+        assert_eq!(value["outcome"], "not_started");
+        assert_eq!(value["dispatched"], false);
+        assert!(!value.to_string().contains("private page details"));
+        let disconnected = CliError::Local(anyhow::anyhow!("connection closed"));
+        assert_eq!(rpc_failure(&disconnected, true)["outcome"], "unknown");
+        assert_eq!(rpc_failure(&disconnected, false)["outcome"], "not_started");
+    }
+    /// WebMCP 复用全局控制参数，避免自己的解析层丢弃 0.4.2 的观察凭据。
+    #[test]
+    fn accepts_shared_control_evidence() {
+        let cli = crate::Cli::try_parse_from([
+            "bsk",
+            "webmcp",
+            "list",
+            "--session",
+            "s",
+            "--context",
+            "ctx",
+            "--observation",
+            "obs",
+        ])
+        .unwrap();
+        assert_eq!(cli.flags.context.as_deref(), Some("ctx"));
+        assert_eq!(cli.flags.observation.as_deref(), Some("obs"));
     }
 }

@@ -288,6 +288,7 @@ describe("handleClick", () => {
     expect(res).toMatchObject({ x: 324, y: 386 });
     expect(targetCalls).toEqual([
       { sessionId: "child-session", method: "DOM.scrollIntoViewIfNeeded" },
+      { sessionId: "child-session", method: "DOM.getBoxModel" },
       { sessionId: "child-session", method: "DOM.getContentQuads" },
       { sessionId: "child-session", method: "Page.getLayoutMetrics" },
       { sessionId: "child-session", method: "Runtime.evaluate" },
@@ -1045,7 +1046,7 @@ describe("click input readiness", () => {
     expect(f.focusCommands().map((c) => c.params)).toEqual([{ enabled: true }, { enabled: false }]);
   });
 
-  it("cancels a pending surface read and consumes its late reply without clicking", async () => {
+  it("cancels a pending renderer frame and consumes its late reply without clicking", async () => {
     const controller = new AbortController();
     let complete!: (value: boolean) => void;
     const f = await fixture({
@@ -1437,7 +1438,7 @@ function successfulFillScript(params: unknown) {
   return {
     result: {
       value: script.functionDeclaration.startsWith("function(value, clearBefore")
-        ? { before: "", expected: args[0].value }
+        ? { before: "", expected: args[0].value, write: "insert" }
         : script.functionDeclaration.startsWith("function(expected)")
           ? { connected: true, matches: true, valueLength: String(args[0].value).length }
           : "ready",
@@ -1639,12 +1640,29 @@ describe("parseKeySpec", () => {
   it("treats single keys as no-modifier presses", () => {
     expect(parseKeySpec("Enter")).toEqual({ key: "Enter", modifiers: [] });
     expect(parseKeySpec("a")).toEqual({ key: "a", modifiers: [] });
+    expect(parseKeySpec("+")).toEqual({ key: "+", modifiers: [] });
   });
   it("normalises modifier casing", () => {
     expect(parseKeySpec("CONTROL+SHIFT+P")).toEqual({
       key: "P",
       modifiers: ["ctrl", "shift"],
     });
+  });
+  it.each([
+    { spec: "Ctrl++", modifiers: ["ctrl"] },
+    { spec: "Ctrl+Shift++", modifiers: ["ctrl", "shift"] },
+    { spec: "Cmd++", modifiers: ["meta"] },
+    { spec: "Shift++", modifiers: ["shift"] },
+    { spec: " cOnTrOl + + ", modifiers: ["ctrl"] },
+  ])("preserves the plus key in $spec", ({ spec, modifiers }) => {
+    expect(parseKeySpec(spec)).toEqual({ key: "+", modifiers });
+  });
+  it.each([
+    { spec: "Crtl++", key: "Crtl++", modifiers: [] },
+    { spec: "Ctrl+Bogus++", key: "Bogus", modifiers: ["ctrl"] },
+    { spec: "Ctrl+A++", key: "A", modifiers: ["ctrl"] },
+  ])("does not replace the existing key in $spec", ({ spec, key, modifiers }) => {
+    expect(parseKeySpec(spec)).toEqual({ key, modifiers });
   });
 });
 
@@ -1731,6 +1749,27 @@ describe("handlePress", () => {
     expect(calls[1].params).toMatchObject({ text: "a" });
   });
 
+  it("dispatches Enter keydown and text atomically before releasing the key", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
+    const result = await handlePress(sm, { session_id: "aa11", key: "Enter" }, fake);
+    expectPressOk(result);
+    expect(
+      fake.sent.filter((c) => c.method === "Input.dispatchKeyEvent").map((c) => c.params),
+    ).toEqual([
+      {
+        type: "keyDown",
+        key: "Enter",
+        code: "Enter",
+        windowsVirtualKeyCode: 13,
+        modifiers: 0,
+        text: "\r",
+      },
+      { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 0 },
+    ]);
+  });
+
   it("handles compound expressions and folds modifiers", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     await sm.start("aa11");
@@ -1750,6 +1789,66 @@ describe("handlePress", () => {
     );
     expect(keyDown?.params).toMatchObject({ modifiers: 2, key: "A", code: "KeyA" });
     expect(keyDown?.params).not.toHaveProperty("text");
+  });
+
+  it("dispatches Ctrl++ like a plus key with an explicit ctrl modifier", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const events: unknown[][] = [];
+    for (const key of ["Ctrl++", "+"]) {
+      const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
+      const res = await handlePress(
+        sm,
+        { session_id: "aa11", key, ...(key === "+" ? { modifiers: ["ctrl" as const] } : {}) },
+        { cdp: fake.cdp, tabsApi: fake.tabsApi },
+      );
+      expectPressOk(res);
+      expect(res).toMatchObject({ key: "+", modifiers: ["ctrl"] });
+      const dispatched = fake.sent
+        .filter((call) => call.method === "Input.dispatchKeyEvent")
+        .map((call) => call.params);
+      expect(dispatched).toMatchObject([
+        { type: "rawKeyDown", key: "+", modifiers: 2 },
+        { type: "keyUp", key: "+", modifiers: 2 },
+      ]);
+      events.push(dispatched);
+    }
+    expect(events[0]).toEqual(events[1]);
+  });
+
+  it.each([
+    "Crtl++",
+    "Ctrl+Bogus++",
+  ])("rejects an unknown prefix in %s without dispatching keys", async (key) => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handlePress(
+      sm,
+      { session_id: "aa11", key },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params" });
+    expect(fake.sent.some((call) => call.method === "Input.dispatchKeyEvent")).toBe(false);
+  });
+
+  it("keeps the existing base key in Ctrl+A++", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
+    const res = await handlePress(
+      sm,
+      { session_id: "aa11", key: "Ctrl+A++" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expectPressOk(res);
+    expect(res).toMatchObject({ key: "A", code: "KeyA", modifiers: ["ctrl"] });
+    const keyDown = fake.sent.find(
+      (call) =>
+        call.method === "Input.dispatchKeyEvent" &&
+        (call.params as { type?: string }).type === "rawKeyDown",
+    );
+    expect(keyDown?.params).toMatchObject({ key: "A", code: "KeyA", modifiers: 2 });
   });
 
   it("focuses an optional target before dispatch", async () => {
@@ -1788,7 +1887,7 @@ describe("handlePress", () => {
         return {};
       },
       "Input.dispatchKeyEvent": (params) => {
-        if ((params as { type: string }).type === "rawKeyDown") {
+        if ((params as { type: string }).type === "keyDown") {
           if (step === "key") throw new Error("key acknowledgement lost");
           if (step === "cancel") abort.abort();
         }
@@ -1921,6 +2020,64 @@ describe("handleSelect", () => {
     "DOM.focus": () => ({}),
     "DOM.resolveNode": () => ({ object: { objectId: "obj-sel" } }),
     "Runtime.callFunctionOn": () => ({ result: { value: mutation } }),
+  });
+
+  it.each([
+    { name: "disabled during focus", markup: "<select></select>", disabled: true },
+    { name: "enabled", markup: "<select></select>", disabled: false },
+  ])("respects the disabled state of a $name select", async ({ markup, disabled }) => {
+    const host = document.createElement("div");
+    host.innerHTML = markup;
+    const select = host.querySelector("select")!;
+    select.innerHTML =
+      '<option value="us">United States</option><option value="ca">Canada</option>';
+    const events: string[] = [];
+    select.addEventListener("input", () => events.push("input"));
+    select.addEventListener("change", () => events.push("change"));
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const fake = makeFakeCdp({
+      ...selectHandlers({ ok: true }),
+      "DOM.focus": () => {
+        select.disabled = disabled;
+        return {};
+      },
+      "Runtime.callFunctionOn": (params) => {
+        const script = params as {
+          functionDeclaration: string;
+          arguments: Array<{ value: unknown }>;
+        };
+        const fn = new Function(`return (${script.functionDeclaration})`)();
+        return {
+          result: {
+            value: fn.apply(
+              select,
+              script.arguments.map((arg) => arg.value),
+            ),
+          },
+        };
+      },
+    });
+
+    const res = await handleSelect(
+      sm,
+      { session_id: "aa11", ref: "e1", values: ["ca"] },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if (disabled) {
+      expect(res).toMatchObject({
+        code: "invalid_params",
+        message: "select requires an enabled <select>",
+      });
+      expect(select.value).toBe("us");
+      expect(events).toEqual([]);
+    } else {
+      expect(res).toMatchObject({ selected_values: ["ca"] });
+      expect(select.value).toBe("ca");
+      expect(events).toEqual(["input", "change"]);
+    }
   });
 
   it("rejects non-select elements as target_not_select", async () => {
@@ -2080,6 +2237,51 @@ describe("handleSelect", () => {
     });
   });
 
+  it("delivers input to listeners outside a select's shadow root", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML =
+      '<select><option value="us">US</option><option value="ca">Canada</option></select>';
+    const select = root.querySelector("select")!;
+    const listener = vi.fn();
+    host.addEventListener("input", listener);
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const fake = makeFakeCdp({
+      ...selectHandlers({ ok: true }),
+      "Runtime.callFunctionOn": (params) => {
+        const script = params as {
+          functionDeclaration: string;
+          arguments: Array<{ value: unknown }>;
+        };
+        const fn = new Function(`return (${script.functionDeclaration})`)();
+        return {
+          result: {
+            value: fn.apply(
+              select,
+              script.arguments.map((arg) => arg.value),
+            ),
+          },
+        };
+      },
+    });
+    try {
+      expect(
+        await handleSelect(
+          sm,
+          { session_id: "aa11", ref: "e1", values: ["ca"] },
+          { cdp: fake.cdp, tabsApi: fake.tabsApi },
+        ),
+      ).toMatchObject({ selected_values: ["ca"] });
+      expect(listener).toHaveBeenCalledOnce();
+      expect(select.value).toBe("ca");
+    } finally {
+      host.remove();
+    }
+  });
+
   it("rejects multiple values on a single-select <select>", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");
@@ -2165,7 +2367,7 @@ it.each([
   if (kind === "click")
     expect(order).toEqual(["prepare", "mouseMoved", "arm", "mousePressed", "arm", "mouseReleased"]);
   else {
-    expect(order.indexOf("arm")).toBeLessThan(order.indexOf("rawKeyDown"));
+    expect(order.indexOf("arm")).toBeLessThan(order.indexOf("keyDown"));
     expect(order.at(-2)).toBe("arm");
     expect(order.at(-1)).toBe("keyUp");
   }

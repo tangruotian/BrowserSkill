@@ -1,8 +1,32 @@
 {
+  "cooperation": {
+    "yielding": "Agent wartet",
+    "label": "Gemeinsame Browsersteuerung",
+    "ready": "Agent ist bereit",
+    "acting": "Agent arbeitet",
+    "human": "Sie haben die Kontrolle",
+    "editing": "Sie bearbeiten die Seite",
+    "held": "Agent ist pausiert",
+    "syncing": "Agent synchronisiert",
+    "unavailable": "Seite nicht verfügbar",
+    "hold": "Agent pausieren",
+    "resume": "An Agent übergeben",
+    "stop": "Aufgabe stoppen",
+    "hints": {
+      "ready": "Sie können jederzeit übernehmen",
+      "acting": "Sie können jederzeit übernehmen",
+      "human": "Agent fährt fort, wenn Sie nicht mehr interagieren",
+      "editing": "Geben Sie danach an Agent zurück",
+      "held": "Geben Sie an Agent zurück, sobald Sie bereit sind",
+      "yielding": "Die aktuelle Aktion wird noch abgeschlossen",
+      "syncing": "Der aktuelle Seitenzustand wird gelesen",
+      "unavailable": "Agent hat die Interaktion angehalten"
+    }
+  },
   "popup": {
     "interactionCompatibilityWarning": "Mit einem älteren Daemon verbunden (Protokoll v{{cliProtocol}}). Aktualisieren Sie CLI und Daemon, um die Automatisierungseinstellungen vollständig zu unterstützen.",
     "brandCategory": "Browser-Automatisierung",
-    "brandName": "BrowserSkill",
+    "brandName": "bkw-ai-saas",
     "stateLabel": {
       "disconnected": "Getrennt",
       "connecting": "Verbindung wird hergestellt…",
@@ -11,8 +35,8 @@
       "disabled": "Verbindung aus"
     },
     "stateDetail": {
-      "disconnected": "Öffnen Sie BrowserSkill, um eine Verbindung herzustellen.",
-      "connecting": "Verbindung zu BrowserSkill wird hergestellt…",
+      "disconnected": "Öffnen Sie bkw-ai-saas, um eine Verbindung herzustellen.",
+      "connecting": "Verbindung zu bkw-ai-saas wird hergestellt…",
       "connected": "Bereit für Automatisierungsaufgaben.",
       "version_skew": "Die Protokollversionen unterscheiden sich. Bitte aktualisieren."
     },
@@ -23,7 +47,7 @@
       "version_skew": "Update verfügbar",
       "disabled": "Aus"
     },
-    "connectionToggleTitle": "BrowserSkill-Verbindung",
+    "connectionToggleTitle": "bkw-ai-saas-Verbindung",
     "controlHintsToggleTitle": "Steuerungshinweise",
     "controlHintsToggleHint": "Zeigt die Statusanzeige und das orangefarbene Leuchten, während der Agent eine Seite steuert.",
     "controlHintsInfoLabel": "Über Steuerungshinweise",
@@ -59,7 +83,7 @@
       "title": "Browsername",
       "placeholder": "z. B. Arbeitsprofil",
       "save": "Speichern",
-      "hint": "Verwende einen eindeutigen Namen, um deinem Agenten diesen Browser anzugeben. Beim Speichern verbindet sich BrowserSkill kurz neu.",
+      "hint": "Verwende einen eindeutigen Namen, um deinem Agenten diesen Browser anzugeben. Beim Speichern verbindet sich bkw-ai-saas kurz neu.",
       "busyHint": "Warte, bis die laufenden Browser-Aufgaben beendet sind, bevor du diesen Namen änderst.",
       "instanceIdError": "Wähle einen Namen, der nicht wie eine achtstellige hexadezimale Instanz-ID aussieht.",
       "edit": "Browser umbenennen",
@@ -76,7 +100,7 @@
       "copyButton": "Aufzeichnungsanweisungen kopieren",
       "copied": "Kopiert",
       "hintDisconnected": "Verfügbar nach dem Verbinden",
-      "promptTemplate": "Verwende die `bsk`-CLI von BrowserSkill, um die Browseraktionen aufzuzeichnen, die ich gleich vorführe.\n\nSchritte:\n1. Führe aus: {{command}}\n2. Sobald du bestätigst, dass es gestartet ist, arbeite ich selbst im geöffneten Fenster.\n3. Nachdem ich auf Fertig geklickt habe, lies das geschriebene `./trace`-Paket (`trace.json` + `states/`) und fasse zusammen, was ich getan habe."
+      "promptTemplate": "Verwende die `bsk`-CLI von bkw-ai-saas, um die Browseraktionen aufzuzeichnen, die ich gleich vorführe.\n\nSchritte:\n1. Führe aus: {{command}}\n2. Sobald du bestätigst, dass es gestartet ist, arbeite ich selbst im geöffneten Fenster.\n3. Nachdem ich auf Fertig geklickt habe, lies das geschriebene `./trace`-Paket (`trace.json` + `states/`) und fasse zusammen, was ich getan habe."
     },
     "interaction": {
       "title": "Automatisierungseinstellungen",
@@ -97,13 +121,13 @@
     "remoteError": "Kopplung nicht abgeschlossen. Prüfen Sie die Serververbindung oder versuchen Sie einen neuen Kopplungslink.",
     "remoteNeedsAttention": "Erfordert Aufmerksamkeit",
     "remoteUnknown": "Verbindungseinstellungen nicht verfügbar",
-    "remoteStorageError": "Verbindungseinstellungen konnten nicht gelesen werden. BrowserSkill versucht es erneut. Sie können auch explizit den lokalen Daemon auswählen, um dies zu beheben.",
+    "remoteStorageError": "Verbindungseinstellungen konnten nicht gelesen werden. bkw-ai-saas versucht es erneut. Sie können auch explizit den lokalen Daemon auswählen, um dies zu beheben.",
     "remoteExpires": "Autorisierung läuft ab: {{date}}",
     "remoteRenewing": "Browser-Autorisierung wird erneuert…",
-    "remoteRenewalFailed": "Die Erneuerung konnte den Dienst nicht erreichen oder nicht erfolgreich abgeschlossen werden. BrowserSkill versucht es erneut; die aktuelle Autorisierung bleibt bis zum Ablauf nutzbar.",
+    "remoteRenewalFailed": "Die Erneuerung konnte den Dienst nicht erreichen oder nicht erfolgreich abgeschlossen werden. bkw-ai-saas versucht es erneut; die aktuelle Autorisierung bleibt bis zum Ablauf nutzbar.",
     "remoteRejected": "Der Server hat die Autorisierung abgelehnt. Prüfen Sie den Server oder verwenden Sie einen neuen Kopplungslink.",
     "remoteExpired": "Die Autorisierung ist abgelaufen. Verwenden Sie einen neuen Kopplungslink, um sich erneut zu verbinden.",
-    "remoteUnconfirmed": "Die zuletzt bestätigte Autorisierung ist abgelaufen, eine Erneuerung könnte jedoch erfolgreich gewesen sein. BrowserSkill wiederholt die ausstehende Erneuerung; prüfen Sie den Server, falls dies weiterhin auftritt.",
+    "remoteUnconfirmed": "Die zuletzt bestätigte Autorisierung ist abgelaufen, eine Erneuerung könnte jedoch erfolgreich gewesen sein. bkw-ai-saas wiederholt die ausstehende Erneuerung; prüfen Sie den Server, falls dies weiterhin auftritt.",
     "connectionSettings": "Verbindungseinstellungen",
     "connectionMode": "Verbindungsmodus",
     "connectionLocal": "Lokal",
@@ -130,12 +154,30 @@
       "unavailableHint": "Verbinden Sie dieses Browserprofil mit bsk, um die Anweisungen zu kopieren.",
       "copyButton": "Anweisungen kopieren",
       "copyFailed": "Die Anweisungen konnten nicht kopiert werden. Bitte versuchen Sie es erneut.",
-      "promptTemplate": "Nutze für diese Aufgabe BrowserSkill im Browser {{name}} (Instanz-ID: {{instanceId}}). Starte jede neue Sitzung für diese Aufgabe über die passende Schnittstelle:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nNutze in DeepSeek Harness den Tool-Aufruf. Führe den CLI-Befehl nicht zusätzlich aus.\nWenn diese Instanz nicht verbunden ist, halte an und bitte mich, dieses Profil wieder zu verbinden. Lasse --browser / browser nicht weg und wechsle nicht zu einer anderen Instanz.",
+      "promptTemplate": "Nutze für diese Aufgabe bkw-ai-saas im Browser {{name}} (Instanz-ID: {{instanceId}}). Starte jede neue Sitzung für diese Aufgabe über die passende Schnittstelle:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nNutze in DeepSeek Harness den Tool-Aufruf. Führe den CLI-Befehl nicht zusätzlich aus.\nWenn diese Instanz nicht verbunden ist, halte an und bitte mich, dieses Profil wieder zu verbinden. Lasse --browser / browser nicht weg und wechsle nicht zu einer anderen Instanz.",
       "title": "Aktueller Browser",
       "unnamed": "Unbenannter Browser"
+    },
+    "daemonUpgrade": {
+      "title": "bsk-Browserdienst aktualisieren",
+      "description": "Der laufende bsk-Dienst (Daemon) ist zu alt. Browseraufgaben können erst nach seiner Aktualisierung ausgeführt werden.",
+      "runCommand": "Öffnen Sie auf dem Computer, auf dem der Dienst läuft, ein Terminal und führen Sie Folgendes aus:",
+      "restart": "Falls dieser Hinweis nach der Aktualisierung weiterhin erscheint, starten Sie den Dienst über das Terminal oder die Host-Anwendung neu, die ihn gestartet hat.",
+      "copyButton": "Befehl kopieren",
+      "copyFailed": "Kopieren fehlgeschlagen. Kopieren Sie den obigen Befehl manuell.",
+      "details": "Technische Details",
+      "protocols": "Dienstprotokoll: {{actual}}. Die Erweiterung benötigt {{required}} oder ein neueres kompatibles Protokoll.",
+      "version": "Aktuell ausgeführt: bsk {{version}}",
+      "notificationMessage": "Browseraufgaben sind nicht verfügbar. Aktualisieren Sie bsk auf dem Computer, auf dem der Browserdienst läuft, und stellen Sie sicher, dass auch der laufende Dienst aktualisiert wurde.",
+      "toolbarTitle": "bkw-ai-saas: bsk-Browserdienst aktualisieren",
+      "notificationButton": "Update-Anleitung anzeigen"
     }
   },
   "controlOverlay": {
+    "project": "Projekt",
+    "session": "Sitzung",
+    "holdController": "{{name}} pausieren",
+    "resumeController": "{{name}} fortsetzen",
     "status": "Agent steuert",
     "interrupt": "Unterbrechen",
     "interrupting": "Wird unterbrochen…"
@@ -148,7 +190,7 @@
     "autoDeny": "Anfrage läuft in {{count}} s ab",
     "deny": "Ablehnen",
     "allow": "Erlauben",
-    "notificationTitle": "BrowserSkill: Agent möchte einen Tab ausleihen",
+    "notificationTitle": "bkw-ai-saas: Agent möchte einen Tab ausleihen",
     "notificationBody": "Genehmigen oder lehnen Sie die Ausleihe von „{{tabTitle}}“ in Ihrem Browser ab."
   },
   "helpRequest": {
@@ -161,7 +203,7 @@
     "collapse": "Einklappen",
     "expand": "Ausklappen",
     "dragHandle": "Zum Verschieben ziehen",
-    "notificationTitle": "BrowserSkill: Agent benötigt Ihre Hilfe"
+    "notificationTitle": "bkw-ai-saas: Agent benötigt Ihre Hilfe"
   },
   "recordOverlay": {
     "recording": "Ihre Aktionen werden aufgezeichnet",
@@ -243,8 +285,8 @@
     "partialLabel": "Teilweiser Verlauf",
     "partialDescription": "Die Aufzeichnung begann um {{time}}. Pausierte Zeiträume wurden nicht aufgezeichnet; siehe die Zeitleiste unten.",
     "inputRedacted": "Eingabeinhalt ausgeblendet",
-    "empty": "Noch keine Aufgaben aufgezeichnet. Künftige BrowserSkill-Vorgänge werden hier angezeigt.",
-    "disconnected": "Der lokale Dienst ist getrennt. Starten Sie den BrowserSkill-Dienst und versuchen Sie es erneut. Der vorhandene Verlauf bleibt auf Ihrem Computer.",
+    "empty": "Noch keine Aufgaben aufgezeichnet. Künftige bkw-ai-saas-Vorgänge werden hier angezeigt.",
+    "disconnected": "Der lokale Dienst ist getrennt. Starten Sie den bkw-ai-saas-Dienst und versuchen Sie es erneut. Der vorhandene Verlauf bleibt auf Ihrem Computer.",
     "unsupported": "Dieser lokale Dienst unterstützt kein Vorgangsprotokoll. Aktualisieren Sie bsk und versuchen Sie es erneut.",
     "requestFailed": "Der Prüfverlauf konnte nicht gelesen oder gespeichert werden. Prüfen Sie den lokalen Speicher und die Verfügbarkeit der Aufgabe, oder versuchen Sie es nach Abschluss der Aufgabe erneut.",
     "privacyShort": "30 Tage lokal gespeichert. Eingabeinhalt ist ausgeblendet.",
@@ -291,6 +333,7 @@
       "press": "Taste drücken",
       "select": "Option auswählen",
       "hover": "Hover",
+      "drag": "Ziehen",
       "focus": "Fokussieren",
       "blur": "Fokus entfernen",
       "scroll": "Scrollen",
@@ -337,7 +380,7 @@
     "disconnected": "Verbinden Sie den Browser, um das Debugging zu starten.",
     "emptyTitle": "Mit einer Debugging-Aufgabe beginnen",
     "emptyHelp": "Nennen Sie Ihrem Agenten die Website und das Problem. Er kann eine Aufgabe erstellen und die Aufzeichnung starten.",
-    "prompt": "Nutze das Website-Debugging von BrowserSkill. Starte die Aufzeichnung, bevor du die Seite aufrufst und das Problem reproduzierst. Zeichne Anfragen, Antworten, Konsole und Seitenkontext auf und untersuche das Problem anhand dieser Belege. Beende die Aufzeichnung und exportiere die Ergebnisse, damit ich sie prüfen kann.",
+    "prompt": "Nutze das Website-Debugging von bkw-ai-saas. Starte die Aufzeichnung, bevor du die Seite aufrufst und das Problem reproduzierst. Zeichne Anfragen, Antworten, Konsole und Seitenkontext auf und untersuche das Problem anhand dieser Belege. Beende die Aufzeichnung und exportiere die Ergebnisse, damit ich sie prüfen kann.",
     "copyPrompt": "Agent-Prompt kopieren",
     "copied": "Kopiert",
     "copyFailed": "Kopieren fehlgeschlagen. Versuchen Sie es erneut.",

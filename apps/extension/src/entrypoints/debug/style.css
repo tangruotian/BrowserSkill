@@ -10,12 +10,12 @@ body,
 }
 
 .debug-workspace {
-  --debug-accent: #ae5e33;
-  --debug-tint: #f6eee6;
+  --debug-accent: #2563eb;
+  --debug-tint: #eff6ff;
 }
 @media (prefers-color-scheme: dark) {
   .debug-workspace {
-    --debug-accent: #e9a57e;
-    --debug-tint: #32291f;
+    --debug-accent: #93c5fd;
+    --debug-tint: #172c4a;
   }
 }

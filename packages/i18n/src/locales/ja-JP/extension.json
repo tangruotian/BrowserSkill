@@ -1,8 +1,32 @@
 {
+  "cooperation": {
+    "yielding": "Agent が待機中",
+    "label": "ブラウザーの共同操作",
+    "ready": "Agent は準備完了",
+    "acting": "Agent が操作中",
+    "human": "あなたが操作中",
+    "editing": "編集中",
+    "held": "Agent は一時停止中",
+    "syncing": "Agent が同期中",
+    "unavailable": "ページを確認できません",
+    "hold": "Agent を一時停止",
+    "resume": "Agent に戻す",
+    "stop": "タスクを停止",
+    "hints": {
+      "ready": "いつでも操作を引き継げます",
+      "acting": "いつでも操作を引き継げます",
+      "human": "操作が止まると Agent が再開します",
+      "editing": "完了したら Agent に戻してください",
+      "held": "準備ができたら Agent に戻してください",
+      "yielding": "現在の操作が終わるのを待っています",
+      "syncing": "最新のページ状態を確認しています",
+      "unavailable": "Agent は操作を停止しています"
+    }
+  },
   "popup": {
     "interactionCompatibilityWarning": "古いバージョンのデーモンに接続しています(プロトコル v{{cliProtocol}})。自動化設定を完全にサポートするには、CLI とデーモンを更新してください。",
     "brandCategory": "ブラウザ自動化",
-    "brandName": "BrowserSkill",
+    "brandName": "bkw-ai-saas",
     "stateLabel": {
       "disconnected": "未接続",
       "connecting": "接続中…",
@@ -11,8 +35,8 @@
       "disabled": "接続オフ"
     },
     "stateDetail": {
-      "disconnected": "BrowserSkill を開いて接続してください。",
-      "connecting": "BrowserSkill に接続中…",
+      "disconnected": "bkw-ai-saas を開いて接続してください。",
+      "connecting": "bkw-ai-saas に接続中…",
       "connected": "自動化タスクを実行できます。",
       "version_skew": "プロトコルのバージョンが異なります。アップグレードしてください。"
     },
@@ -23,7 +47,7 @@
       "version_skew": "アップグレード可能",
       "disabled": "オフ"
     },
-    "connectionToggleTitle": "BrowserSkill 接続",
+    "connectionToggleTitle": "bkw-ai-saas 接続",
     "controlHintsToggleTitle": "操作ヒント",
     "controlHintsToggleHint": "エージェントがページを操作している間、ステータス表示とオレンジ色の光を表示します。",
     "controlHintsInfoLabel": "操作ヒントについて",
@@ -59,7 +83,7 @@
       "title": "ブラウザ名",
       "placeholder": "例：仕事用プロファイル",
       "save": "保存",
-      "hint": "エージェントにブラウザを指定するため、一意の名前を付けてください。保存すると BrowserSkill が一時的に再接続します。",
+      "hint": "エージェントにブラウザを指定するため、一意の名前を付けてください。保存すると bkw-ai-saas が一時的に再接続します。",
       "busyHint": "実行中のブラウザタスクが終了してから名前を変更してください。",
       "instanceIdError": "8 桁の16進数のインスタンス ID 形式以外の名前を指定してください。",
       "edit": "ブラウザ名を変更",
@@ -76,7 +100,7 @@
       "copyButton": "記録の指示をコピー",
       "copied": "コピーしました",
       "hintDisconnected": "接続すると利用できます",
-      "promptTemplate": "これから私が行うブラウザ操作を、BrowserSkill の `bsk` CLI を使って記録してください。\n\n手順:\n1. 次を実行してください:{{command}}\n2. 開始したことを確認したら、開いたウィンドウで私自身が操作します。\n3. 私が「完了」をクリックしたら、生成された `./trace` バンドル(`trace.json` + `states/`)を読み込み、私が行った内容を要約してください。"
+      "promptTemplate": "これから私が行うブラウザ操作を、bkw-ai-saas の `bsk` CLI を使って記録してください。\n\n手順:\n1. 次を実行してください:{{command}}\n2. 開始したことを確認したら、開いたウィンドウで私自身が操作します。\n3. 私が「完了」をクリックしたら、生成された `./trace` バンドル(`trace.json` + `states/`)を読み込み、私が行った内容を要約してください。"
     },
     "interaction": {
       "title": "自動化設定",
@@ -97,13 +121,13 @@
     "remoteError": "ペアリングが完了しませんでした。サーバーの接続を確認するか、新しいペアリングリンクでもう一度お試しください。",
     "remoteNeedsAttention": "要確認",
     "remoteUnknown": "接続設定を利用できません",
-    "remoteStorageError": "接続設定を読み込めませんでした。BrowserSkill が自動的に再試行します。ローカルデーモンを明示的に選択して復旧することもできます。",
+    "remoteStorageError": "接続設定を読み込めませんでした。bkw-ai-saas が自動的に再試行します。ローカルデーモンを明示的に選択して復旧することもできます。",
     "remoteExpires": "認証の有効期限:{{date}}",
     "remoteRenewing": "ブラウザの認証を更新中…",
-    "remoteRenewalFailed": "更新がサービスに到達できなかったか、正常に完了しませんでした。BrowserSkill が自動的に再試行します。現在の認証は期限が切れるまで引き続き使用できます。",
+    "remoteRenewalFailed": "更新がサービスに到達できなかったか、正常に完了しませんでした。bkw-ai-saas が自動的に再試行します。現在の認証は期限が切れるまで引き続き使用できます。",
     "remoteRejected": "サーバーが認証を拒否しました。サーバーを確認するか、新しいペアリングリンクを使用してください。",
     "remoteExpired": "認証の有効期限が切れました。新しいペアリングリンクを使用して再接続してください。",
-    "remoteUnconfirmed": "最後に確認された認証は期限切れですが、更新が成功している可能性があります。BrowserSkill は保留中の更新を再試行しています。この状態が続く場合はサーバーを確認してください。",
+    "remoteUnconfirmed": "最後に確認された認証は期限切れですが、更新が成功している可能性があります。bkw-ai-saas は保留中の更新を再試行しています。この状態が続く場合はサーバーを確認してください。",
     "connectionSettings": "接続設定",
     "connectionMode": "接続方式",
     "connectionLocal": "ローカル",
@@ -130,12 +154,30 @@
       "unavailableHint": "手順をコピーするには、このブラウザプロファイルを bsk に接続してください。",
       "copyButton": "指示をコピー",
       "copyFailed": "手順をコピーできませんでした。もう一度お試しください。",
-      "promptTemplate": "このタスクでは、ブラウザ {{name}}（インスタンス ID: {{instanceId}}）の BrowserSkill を使用してください。このタスクの新しいセッションを開始するたびに、利用するインターフェースに応じて次のいずれかを実行してください:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nDeepSeek Harness ではツールを呼び出し、CLI コマンドを別途実行しないでください。\nこのインスタンスが未接続の場合は、作業を止め、このプロファイルの再接続を私に依頼してください。--browser / browser を省略したり、別のインスタンスに切り替えたりしないでください。",
+      "promptTemplate": "このタスクでは、ブラウザ {{name}}（インスタンス ID: {{instanceId}}）の bkw-ai-saas を使用してください。このタスクの新しいセッションを開始するたびに、利用するインターフェースに応じて次のいずれかを実行してください:\nCLI: {{command}}\nDeepSeek Harness: {{toolCall}}\nDeepSeek Harness ではツールを呼び出し、CLI コマンドを別途実行しないでください。\nこのインスタンスが未接続の場合は、作業を止め、このプロファイルの再接続を私に依頼してください。--browser / browser を省略したり、別のインスタンスに切り替えたりしないでください。",
       "title": "現在のブラウザ",
       "unnamed": "名前のないブラウザ"
+    },
+    "daemonUpgrade": {
+      "title": "bsk ブラウザーサービスの更新が必要です",
+      "description": "実行中の bsk サービス（daemon）が古いため、更新するまでブラウザータスクを実行できません。",
+      "runCommand": "このサービスを実行しているコンピューターでターミナルを開き、次を実行してください：",
+      "restart": "更新後もこの通知が表示される場合は、サービスを起動したターミナルまたはホストアプリから再起動してください。",
+      "copyButton": "コマンドをコピー",
+      "copyFailed": "コピーできませんでした。上のコマンドを手動でコピーしてください。",
+      "details": "技術的な詳細",
+      "protocols": "サービスのプロトコル：{{actual}}。拡張機能には {{required}} 以降の互換プロトコルが必要です。",
+      "version": "現在実行中：bsk {{version}}",
+      "notificationMessage": "ブラウザータスクを実行できません。ブラウザーサービスを実行しているコンピューターで bsk を更新し、実行中のサービスも更新されていることを確認してください。",
+      "toolbarTitle": "bkw-ai-saas：bsk ブラウザーサービスの更新が必要です",
+      "notificationButton": "更新手順を見る"
     }
   },
   "controlOverlay": {
+    "project": "プロジェクト",
+    "session": "セッション",
+    "holdController": "{{name}} を一時停止",
+    "resumeController": "{{name}} を再開",
     "status": "エージェントが操作中",
     "interrupt": "中断",
     "interrupting": "中断中…"
@@ -148,7 +190,7 @@
     "autoDeny": "{{count}} 秒後にリクエストは期限切れになります",
     "deny": "拒否",
     "allow": "許可",
-    "notificationTitle": "BrowserSkill:エージェントがタブの借用を希望しています",
+    "notificationTitle": "bkw-ai-saas:エージェントがタブの借用を希望しています",
     "notificationBody": "ブラウザ内の「{{tabTitle}}」の借用を承認または拒否してください。"
   },
   "helpRequest": {
@@ -161,7 +203,7 @@
     "collapse": "折りたたむ",
     "expand": "展開する",
     "dragHandle": "ドラッグして移動",
-    "notificationTitle": "BrowserSkill:エージェントがあなたの助けを必要としています"
+    "notificationTitle": "bkw-ai-saas:エージェントがあなたの助けを必要としています"
   },
   "recordOverlay": {
     "recording": "操作を記録しています",
@@ -243,8 +285,8 @@
     "partialLabel": "一部の履歴",
     "partialDescription": "記録は {{time}} に開始しました。一時停止していた期間は記録されていません。以下のタイムラインをご確認ください。",
     "inputRedacted": "入力内容は非表示です",
-    "empty": "まだ記録されたタスクはありません。今後の BrowserSkill の操作がここに表示されます。",
-    "disconnected": "ローカルサービスが切断されています。BrowserSkill サービスを起動してから再試行してください。既存の履歴はこのコンピューターに残っています。",
+    "empty": "まだ記録されたタスクはありません。今後の bkw-ai-saas の操作がここに表示されます。",
+    "disconnected": "ローカルサービスが切断されています。bkw-ai-saas サービスを起動してから再試行してください。既存の履歴はこのコンピューターに残っています。",
     "unsupported": "このローカルサービスは操作監査に対応していません。bsk を更新してから再試行してください。",
     "requestFailed": "監査履歴を読み込みまたは保存できませんでした。ローカルストレージとタスクの状態を確認するか、タスク終了後にもう一度お試しください。",
     "privacyShort": "ローカルに 30 日間保存されます。入力内容は非表示です。",
@@ -291,6 +333,7 @@
       "press": "キーを押す",
       "select": "オプションを選択",
       "hover": "ホバー",
+      "drag": "ドラッグ",
       "focus": "フォーカス",
       "blur": "フォーカス解除",
       "scroll": "スクロール",
@@ -337,7 +380,7 @@
     "disconnected": "デバッグを開始するには、ブラウザを接続してください。",
     "emptyTitle": "デバッグタスクから始めましょう",
     "emptyHelp": "対象のサイトと問題をエージェントに伝えてください。エージェントがタスクを作成し、収集を開始できます。",
-    "prompt": "BrowserSkill のウェブサイトデバッグを使ってください。ページを開いて問題を再現する前に収集を開始し、リクエスト、レスポンス、コンソール、ページの状況を記録してください。記録した証拠を使って調査し、最後に収集を停止して、私が確認できるように結果をエクスポートしてください。",
+    "prompt": "bkw-ai-saas のウェブサイトデバッグを使ってください。ページを開いて問題を再現する前に収集を開始し、リクエスト、レスポンス、コンソール、ページの状況を記録してください。記録した証拠を使って調査し、最後に収集を停止して、私が確認できるように結果をエクスポートしてください。",
     "copyPrompt": "エージェントへの指示をコピー",
     "copied": "コピーしました",
     "copyFailed": "コピーできませんでした。もう一度お試しください。",

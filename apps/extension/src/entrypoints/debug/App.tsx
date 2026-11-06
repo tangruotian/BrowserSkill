@@ -289,7 +289,7 @@ export function DebugApp() {
       <header className="border-b border-border/70 bg-card/70">
         <div className="mx-auto flex max-w-[1480px] flex-wrap items-center gap-4 px-6 py-5 lg:px-10">
           <img src="/icon/logo.png" width="28" height="28" alt="" />
-          <span className="text-sm font-semibold tracking-tight">BrowserSkill</span>
+          <span className="text-sm font-semibold tracking-tight">bkw-ai-saas</span>
           <span className="text-border">/</span>
           <span className="text-xs text-muted-foreground">{t("debug.title")}</span>
           {!isHistory && (
@@ -500,7 +500,7 @@ export function DebugApp() {
               <time>{new Date(run.started_at).toLocaleString()}</time>
               <span className="font-mono">{run.id}</span>
               {run.environment?.extension_version && (
-                <span>BrowserSkill {run.environment.extension_version}</span>
+                <span>bkw-ai-saas {run.environment.extension_version}</span>
               )}
               {run.saved_at && <span>{t("debug.savedAt", { time: clock(run.saved_at) })}</span>}
               {run.stop_reason && (

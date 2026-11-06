@@ -24,6 +24,8 @@ export function collectExtractDom(this: Element, options: CollectorOptions): Raw
   const encoder = new TextEncoder();
   const tableSelector = 'table,[role="table"],[role="grid"],[role="treegrid"]';
   const listSelector = 'ul,ol,[role="list"]';
+  const sensitiveInputSelector =
+    'input[type="password"],input[type="hidden"],[data-bsk-record-password],[autocomplete~="current-password" i],[autocomplete~="new-password" i],[autocomplete~="one-time-code" i],[autocomplete^="cc-" i],[autocomplete*=" cc-" i]';
   const hiddenSubtrees = new WeakMap<Element, boolean>();
   const styles = new WeakMap<Element, CSSStyleDeclaration>();
   const styleOf = (element: Element) => {
@@ -78,6 +80,8 @@ export function collectExtractDom(this: Element, options: CollectorOptions): Raw
       }
       chain.push(current);
       const style = styleOf(current);
+      // Chromium ignores content-visibility on ordinary inline, boxless and
+      // non-cell table boxes. Keep their rendered contents extractable.
       if (
         current.hasAttribute("hidden") ||
         current.hasAttribute("data-bsk-overlay") ||
@@ -85,6 +89,10 @@ export function collectExtractDom(this: Element, options: CollectorOptions): Raw
         current.tagName.toLowerCase() === "browser-skill-overlay" ||
         closedDetailsContent(current) ||
         style.display === "none" ||
+        (style.contentVisibility === "hidden" &&
+          !/^(inline( list-item)?|contents|(?:inline-)?table|table-(caption|row|row-group|header-group|footer-group|column|column-group)|ruby(-.*)?)$/.test(
+            style.display,
+          )) ||
         (style.visibility === "collapse" &&
           /^table-(row|row-group|header-group|footer-group|column|column-group)$/.test(
             style.display,
@@ -216,9 +224,7 @@ export function collectExtractDom(this: Element, options: CollectorOptions): Raw
       if (
         isSubtreeHidden(node) ||
         (node instanceof SVGElement && !renderedSvg.has(node.localName)) ||
-        node.matches(
-          'script,style,template,noscript,input[type="password"],input[type="hidden"]',
-        ) ||
+        node.matches(`script,style,template,noscript,${sensitiveInputSelector}`) ||
         (node !== root && node.matches(tableSelector))
       )
         continue;
@@ -505,7 +511,7 @@ export function collectExtractDom(this: Element, options: CollectorOptions): Raw
             if (visible.length > 1)
               fail("extract_field_ambiguous", `Field ${field.key} matches multiple elements`);
             const element = visible[0];
-            if (!element || element.matches('input[type="password"],input[type="hidden"]')) {
+            if (!element || element.matches(sensitiveInputSelector)) {
               row[field.key] = null;
               continue;
             }

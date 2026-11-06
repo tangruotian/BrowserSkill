@@ -38,10 +38,11 @@ export default defineConfig({
   srcDir: "src",
   outDir: "dist",
   modules: ["@wxt-dev/module-react"],
+  // 发行品牌仅影响 Chrome 展示名称；扩展协议、bsk CLI 和上游包名保持兼容。
   manifest: {
-    name: "BrowserSkill",
+    name: "bkw-ai-saas",
     description:
-      "Let AI agents use your logged-in browser in a separate Agent Window—without interrupting your work. Powered by the bsk CLI.",
+      "Connect AI agents to your logged-in SaaS pages and WebMCP tools. Powered by BrowserSkill.",
     // Flat debugger sessions are required to address out-of-process iframes.
     minimum_chrome_version: "125",
     // Present only for production builds that target a hosted update
@@ -57,6 +58,7 @@ export default defineConfig({
       "offscreen",
       "scripting",
       "tabs",
+      "tabGroups",
       "storage",
       "webNavigation",
       "windows",
@@ -69,7 +71,7 @@ export default defineConfig({
       128: "icon/logo.png",
     },
     action: {
-      default_title: "BrowserSkill",
+      default_title: "bkw-ai-saas",
       default_icon: {
         16: "icon/logo.png",
         32: "icon/logo.png",

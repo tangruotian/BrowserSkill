@@ -40,7 +40,7 @@ pub struct SessionCmd {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum SessionSub {
-    /// Start a new session against the (single) connected browser.
+    /// Start a browser session with automatic human collaboration.
     Start(SessionStartArgs),
     /// Stop a single session, or all sessions with `--all`.
     Stop(SessionStopArgs),
@@ -73,6 +73,15 @@ pub struct SessionStartArgs {
     /// 精确附着已有页签，不依赖用户执行时的活动页；必须配合 current-tab 模式。
     #[arg(long, requires = "attach_current_tab")]
     pub attach_tab_id: Option<i64>,
+    /// Agent name displayed in the browser control overlay (1..=80 characters).
+    #[arg(long)]
+    pub agent_name: Option<String>,
+    /// Project label displayed alongside the agent (1..=120 characters).
+    #[arg(long, requires = "agent_name")]
+    pub project: Option<String>,
+    /// Controller marker color as #RRGGBB (default: stable per-session color).
+    #[arg(long, requires = "agent_name")]
+    pub controller_color: Option<String>,
     /// Deprecated compatibility flag. Automation settings in the extension take precedence.
     #[arg(long)]
     pub unattended: bool,
@@ -86,6 +95,10 @@ pub struct SessionStartArgs {
     /// a specific browser profile is required.
     #[arg(long)]
     pub browser: Option<String>,
+
+    /// Open an incognito Agent Window (requires the extension's Allow in incognito setting).
+    #[arg(long, conflicts_with = "attach_current_tab")]
+    pub incognito: bool,
 
     /// Agent Window outer width in CSS pixels (100..=7680). Both
     /// `--width` and `--height` must be given to take effect.
@@ -152,6 +165,10 @@ struct StartParams {
     new_tab: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     attach_tab_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    controller: Option<bsk_protocol::tools::ControllerInfo>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    incognito: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -281,6 +298,14 @@ fn run_start(sock: PathBuf, args: SessionStartArgs, format: Format) -> Result<()
         SessionStartOptions {
             new_tab: args.new_tab,
             attach_tab_id: args.attach_tab_id,
+            controller: args
+                .agent_name
+                .map(|name| bsk_protocol::tools::ControllerInfo {
+                    name,
+                    project: args.project,
+                    color: args.controller_color,
+                }),
+            incognito: args.incognito,
             name: args.name,
             request_id: args.request_id,
             browser: args.browser,
@@ -329,6 +354,8 @@ pub struct SessionStartOptions {
     pub new_tab: bool,
     /// 明确指定目标时，扩展必须回传同一个 attached_tab_id。
     pub attach_tab_id: Option<i64>,
+    pub controller: Option<bsk_protocol::tools::ControllerInfo>,
+    pub incognito: bool,
     pub request_id: Option<String>,
     pub name: Option<String>,
     pub browser: Option<String>,
@@ -340,6 +367,19 @@ pub struct SessionStartOptions {
 
 /// Start a session and select its browser target. Used by `session start` and `record start`.
 pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartReply, CliError> {
+    if let Some(controller) = &opts.controller {
+        controller
+            .validate()
+            .map_err(|err| CliError::Local(anyhow::anyhow!(err)))?;
+    }
+    if opts.incognito {
+        crate::cli::protocol::require_daemon_support(
+            &sock,
+            "session start --incognito",
+            bsk_protocol::tools::INCOGNITO_SESSION_PROTOCOL,
+            bsk_protocol::tools::supports_incognito_sessions,
+        )?;
+    }
     call(
         sock,
         if opts.request_id.is_some() {
@@ -350,6 +390,8 @@ pub fn start_session(sock: PathBuf, opts: SessionStartOptions) -> Result<StartRe
         Some(StartParams {
             new_tab: opts.new_tab,
             attach_tab_id: opts.attach_tab_id,
+            controller: opts.controller,
+            incognito: opts.incognito,
             request_id: opts.request_id,
             task_name: opts.name,
             browser_instance_id: opts.browser,
@@ -649,7 +691,7 @@ fn run_list(sock: PathBuf, format: Format) -> Result<(), CliError> {
                 println!("(no active sessions)");
                 return Ok(());
             }
-            let headers = ("SESSION", "BROWSER", "AGENT WINDOW");
+            let headers = ("SESSION", "BROWSER", "AGENT WINDOW", "CONTROLLER / PROJECT");
             let session_w = reply
                 .sessions
                 .iter()
@@ -665,8 +707,8 @@ fn run_list(sock: PathBuf, format: Format) -> Result<(), CliError> {
                 .unwrap_or(0)
                 .max(headers.1.len());
             println!(
-                "{:<session_w$}  {:<browser_w$}  {}",
-                headers.0, headers.1, headers.2,
+                "{:<session_w$}  {:<browser_w$}  {}  {}",
+                headers.0, headers.1, headers.2, headers.3,
             );
             for s in &reply.sessions {
                 let window = s
@@ -674,8 +716,19 @@ fn run_list(sock: PathBuf, format: Format) -> Result<(), CliError> {
                     .map(|w| w.to_string())
                     .unwrap_or_else(|| "-".into());
                 println!(
-                    "{:<session_w$}  {:<browser_w$}  {}",
-                    s.session_id, s.browser_instance_id, window,
+                    "{:<session_w$}  {:<browser_w$}  {}  {}",
+                    s.session_id,
+                    s.browser_instance_id,
+                    window,
+                    s.controller.as_ref().map_or_else(
+                        || "-".into(),
+                        |c| {
+                            c.project.as_ref().map_or_else(
+                                || c.name.clone(),
+                                |project| format!("{} / {project}", c.name),
+                            )
+                        }
+                    ),
                 );
             }
         }
@@ -738,6 +791,8 @@ mod start_params_tests {
     #[test]
     fn exact_tab_is_serialized_without_replacing_browser_identity() {
         let params = StartParams {
+            controller: None,
+            incognito: false,
             request_id: None,
             new_tab: false,
             attach_tab_id: Some(42),
@@ -755,6 +810,59 @@ mod start_params_tests {
     }
 
     #[test]
+    fn controller_flags_require_an_agent_name() {
+        use clap::Parser;
+        for flags in [
+            vec!["--project", "Search"],
+            vec!["--controller-color", "#2563eb"],
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from([vec!["bsk", "session", "start"], flags].concat())
+                    .is_err()
+            );
+        }
+        let cli = crate::cli::Cli::try_parse_from([
+            "bsk",
+            "session",
+            "start",
+            "--agent-name",
+            "Codex",
+            "--project",
+            "Search",
+            "--controller-color",
+            "#2563eb",
+        ])
+        .unwrap();
+        let crate::cli::Command::Session(SessionCmd {
+            sub: SessionSub::Start(args),
+        }) = cli.command
+        else {
+            panic!("expected start")
+        };
+        assert_eq!(args.agent_name.as_deref(), Some("Codex"));
+        assert_eq!(args.project.as_deref(), Some("Search"));
+        assert_eq!(args.controller_color.as_deref(), Some("#2563eb"));
+    }
+
+    #[test]
+    fn incognito_flag_is_opt_in() {
+        use clap::Parser;
+        for (flags, expected) in [
+            (vec!["bsk", "session", "start"], false),
+            (vec!["bsk", "session", "start", "--incognito"], true),
+        ] {
+            let cli = crate::cli::Cli::try_parse_from(flags).unwrap();
+            let crate::cli::Command::Session(SessionCmd {
+                sub: SessionSub::Start(args),
+            }) = cli.command
+            else {
+                panic!("expected session start")
+            };
+            assert_eq!(args.incognito, expected);
+        }
+    }
+
+    #[test]
     fn start_params_send_task_name_without_policy_overrides() {
         for task_name in [None, Some("Check settings".to_string())] {
             let params = StartParams {
@@ -762,6 +870,8 @@ mod start_params_tests {
                 attach_tab_id: None,
                 // 默认窗口模式保持旧协议载荷，固定页签模式由专门测试覆盖。
                 mode: None,
+                controller: None,
+                incognito: false,
                 request_id: None,
                 task_name: task_name.clone(),
                 browser_instance_id: None,

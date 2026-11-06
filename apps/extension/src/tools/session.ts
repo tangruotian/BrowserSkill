@@ -1,3 +1,4 @@
+import { type ControllerInfo, isControllerInfo } from "@/lib/controller-info";
 import {
   DEFAULT_INTERACTION_PREFERENCES,
   type InteractionPreferenceStore,
@@ -58,6 +59,9 @@ export interface SessionStartParams {
   /** 精确页签绑定的可选协议字段；调用方必须验证响应兑现了约束。 */
   attach_tab_id?: number;
   session_id: string;
+  controller?: ControllerInfo | null;
+  /** Opt in to Chrome's shared incognito browsing session. */
+  incognito?: boolean;
   browser_instance_id?: string;
   /** Defaults to the isolated Agent Window mode. */
   mode?: "agent_window" | "current_tab";
@@ -177,12 +181,24 @@ export async function handleSessionStart(
       message: "width, height, and focused only apply to agent_window sessions",
     };
   }
+  if (params.incognito !== undefined && typeof params.incognito !== "boolean") {
+    return { code: "invalid_params", message: "incognito must be a boolean" };
+  }
+  if (params.controller != null && !isControllerInfo(params.controller)) {
+    return {
+      code: "invalid_params",
+      message:
+        "controller requires a name (1..=80 characters), optional project (1..=120), no control characters, and optional #RRGGBB color",
+    };
+  }
   try {
     await deps.preferences?.readyOrFallback();
     const ctx = await manager.start(params.session_id, {
       mode: params.mode ?? "agent_window",
       attachTabId: params.attach_tab_id,
       newTab: params.new_tab,
+      controller: params.controller ?? undefined,
+      incognito: params.incognito,
       size: sizeOrErr,
       focused: params.focused,
       signal: deps.signal,
@@ -286,13 +302,16 @@ async function stopSession(
   const returnFailures: SessionStopResult["return_failures"] = [];
   const borrowedIds = Array.from(ctx.borrowedTabs.keys());
   for (const tabId of borrowedIds) {
+    if (manager.get(ctx.sessionId) !== ctx) return {};
     // A close event may have removed this borrow while another tab returned.
     if (!ctx.borrowedTabs.has(tabId)) continue;
     try {
       const tabManagement = {
         ...(deps.tabManagement ?? {}),
+        tabsQuery: deps.tabsQuery ?? deps.tabManagement?.tabsQuery,
         cdp: deps.cdp ?? deps.tabManagement?.cdp,
         signal: deps.signal,
+        isSessionLive: () => manager.get(ctx.sessionId) === ctx,
         isAgentWindowId:
           deps.tabManagement?.isAgentWindowId ??
           ((windowId: number) => manager.findByWindowId(windowId) !== null),
@@ -377,6 +396,12 @@ async function stopSession(
   }
 
   return manager.withExpectedWindowClose(ctx, async () => {
+    const interrupted = (): SessionStopResult | RpcError | undefined => {
+      if (deps.signal?.aborted) return { code: "cancelled", message: "session_stop aborted" };
+      // Another lifecycle event may have already released every page. A normal
+      // last-tab close also removes the session; both paths need no more work.
+      if (manager.get(ctx.sessionId) !== ctx) return result;
+    };
     // Step 4: close every tab explicitly created by the agent, including the
     // home tab. `tabsApi` is a
     // TabMutationApi (remove only); `queryApi` is a separate read-only
@@ -395,9 +420,13 @@ async function stopSession(
       // Close each agent-created tab that still exists.
       const agentCreatedTabIds = Array.from(ctx.agentCreatedTabs);
       for (const tabId of agentCreatedTabIds) {
+        const ended = interrupted();
+        if (ended) return ended;
         try {
           if (closeLastTabWithWindow && queryApi) {
             const liveTabs = await queryApi.query({ windowId: ctx.agentWindowId });
+            const ended = interrupted();
+            if (ended) return ended;
             if (liveTabs.length === 1 && liveTabs[0]?.id === tabId) {
               deferredAgentTabs.add(tabId);
               continue;
@@ -412,11 +441,16 @@ async function stopSession(
       }
     }
 
+    const ended = interrupted();
+    if (ended) return ended;
+
     // Step 5: decide whether to release (keep) the window or close it.
     let shouldRelease = (ctx.observedTabs?.size ?? 0) > 0;
     if (queryApi) {
       try {
         const liveWindowTabs = await queryApi.query({ windowId: ctx.agentWindowId });
+        const ended = interrupted();
+        if (ended) return ended;
         // Only genuine *user* tabs count toward keeping the window open.
         // An agent tab that failed to close in Step 4 may still be present
         // here; if we counted it as a reason to release (dropOnly), the
@@ -439,6 +473,8 @@ async function stopSession(
           // A user opened a tab after Step 4 deferred the final agent tab.
           // It is now safe to remove that tab without closing the window.
           for (const tab of leakedAgentTabs) {
+            const ended = interrupted();
+            if (ended) return ended;
             try {
               await tabsApi.remove(tab.id);
               ctx.agentCreatedTabs.delete(tab.id);
@@ -474,6 +510,9 @@ async function stopSession(
         // release decision when observed tabs are known to require protection.
       }
     }
+
+    const finished = interrupted();
+    if (finished) return finished;
 
     if (shouldRelease) {
       // Keep the window + its user tabs; only drop the session binding.

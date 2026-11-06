@@ -29,6 +29,15 @@ function fakeAgentWindow(): AgentWindowApi & {
 }
 
 describe("SessionManager", () => {
+  // 无痕窗口创建与已有页附着是不同目标语义，组合必须在接触用户页签之前拒绝。
+  it("rejects current-tab with incognito before reading tabs", async () => {
+    const active = vi.fn();
+    const sm = new SessionManager({ currentTab: { getLastFocusedActiveTab: active } });
+    await expect(sm.start("mixed", { mode: "current_tab", incognito: true })).rejects.toThrow(/incognito/);
+    expect(active).not.toHaveBeenCalled();
+    expect(sm.list()).toEqual([]);
+  });
+
   // 发送消息后活动页已变，精确附着仍必须读取指定页，且不能创建替代页。
   it("attaches the explicit tab without consulting the active tab", async () => {
     const active = vi.fn(async () => ({ tabId: 2, windowId: 1, url: "https://other.test" }));
@@ -81,6 +90,25 @@ describe("SessionManager", () => {
     expect(aw.createMock).not.toHaveBeenCalled();
     expect(sm.list()).toEqual([]);
   });
+  it("records the actual incognito mode on the session", async () => {
+    const aw = fakeAgentWindow();
+    aw.createMock.mockResolvedValueOnce({ windowId: 100, initialTabIds: [7], incognito: true });
+    const sm = new SessionManager({ agentWindow: aw });
+    expect((await sm.start("private", { incognito: true })).incognito).toBe(true);
+    expect(aw.createMock).toHaveBeenCalledWith("about:blank", { incognito: true });
+  });
+
+  it("rolls back a normal window returned for an incognito request before initializing tabs", async () => {
+    const aw = fakeAgentWindow();
+    const sm = new SessionManager({ agentWindow: aw });
+    await expect(sm.start("private", { incognito: true })).rejects.toThrow(
+      /did not create an incognito/,
+    );
+    expect(aw.removeMock).toHaveBeenCalledWith(100);
+    expect(aw.ensureActiveTabMock).not.toHaveBeenCalled();
+    expect(sm.has("private")).toBe(false);
+  });
+
   it("creates an Agent Window when starting a session", async () => {
     const aw = fakeAgentWindow();
     const sm = new SessionManager({ agentWindow: aw, now: () => 1700000000000 });

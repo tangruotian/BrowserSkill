@@ -5,7 +5,7 @@ description: Operate the user's logged-in Chromium browser with the bsk CLI and 
 
 # BrowserSkill
 
-Use the chrome-web-sdk build of `bsk` and the matching BrowserSkill extension. The binary must support `bsk webmcp --help`. No chrome-agent process, model credentials or Node runtime is required for CLI browser operations.
+Use the chrome-web-sdk build of `bsk` and the matching bkw-ai-saas extension (BrowserSkill 0.4.2 base). The binary must support `bsk webmcp --help`. No chrome-agent process, model credentials or Node runtime is required for CLI browser operations.
 
 ## Connect to the intended page
 
@@ -14,11 +14,16 @@ For the user's current page, start `bsk session start --attach-current-tab --jso
 Retain the returned `session_id`, `browser_instance_id`, and `attached_tab_id`. Current-tab mode binds once; subsequent commands must not chase changing user focus. If `fallback_created=true`, an internal/restricted page caused a new work tab: do not claim this is the requested original page. Observe the target before acting.
 
 ```sh
-bsk observe --session <session-id> --json
-bsk webmcp list --session <session-id> --json
+bsk cooperate sync --session <session-id> --json
+# Inspect state.mode=ready, the page, context_id and (when returned) observation_id first.
+bsk webmcp list --session <session-id> --context <context-id> --observation <observation-id> --json
 ```
 
 Independent tasks use independent sessions. A tab already controlled by another session must not be stolen. Reuse the shared daemon; do not restart it or stop unrelated sessions. End your own session with `bsk session stop <session-id>` when the task finishes; attached user tabs remain open. If keeping control is part of the request, retain it explicitly.
+
+## Shared control (0.4.2)
+
+Read [cooperation](references/cooperation.md) before page actions. Inspect `cooperate sync` and its current page evidence. If sync does not return `state.mode=ready` and a context (or wait returns `ready=false`), wait for hand-back; `user_aborted` means stop. Use the returned `context_id` via `--context`. Under target policy, scripts including both `webmcp list` and `webmcp call` also require that sync's `observation_id` via `--observation`; omit the flag if strict policy returns none. Each script consumes its observation receipt, so sync and inspect again before the next WebMCP command. Never fabricate or cache authority across human intervention/navigation. These coordination rules also apply to DOM fallback.
 
 ## Prefer declared page tools
 
@@ -27,7 +32,9 @@ When discovery returns a matching, available tool, use its description and JSON 
 Read [WebMCP calls](references/webmcp.md) before invoking a page tool. Use an UTF-8 JSON file for complex inputs rather than shell-escaped expressions:
 
 ```sh
-bsk webmcp call <tool-name> --session <session-id> --document-id <document-id> --binding-id <binding-id> --input-file <input.json> --json
+bsk cooperate sync --session <session-id> --json
+# Inspect the new result, then use its control evidence for this call.
+bsk webmcp call <tool-name> --session <session-id> --context <context-id> --observation <observation-id> --document-id <document-id> --binding-id <binding-id> --input-file <input.json> --json
 ```
 
 Re-discover after navigation or a stale binding/catalog error. A successful call means the handler returned; query business state when the task requires confirmation. If a write has `outcome=unknown`, inspect state before doing anything else: never repeat it through another channel or a DOM button.
@@ -36,7 +43,7 @@ For a site-specific multi-step process, read the user's business skill if provid
 
 ## DOM fallback
 
-If discovery reports `unsupported`, or no available tool satisfies the task, use fresh observation refs. Do not use fallback to bypass a denied operation or retry an uncertain write.
+If discovery reports `unsupported`, or no available tool satisfies the task, use fresh observation refs and `--context` from a sync you inspected. Do not use fallback to bypass a denied operation or retry an uncertain write.
 
 | Task | Command |
 | --- | --- |
