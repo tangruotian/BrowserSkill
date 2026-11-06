@@ -372,8 +372,8 @@ export function HelpRequestOverlay({ request }: Props) {
     <>
       <style>{`
         @keyframes bsk-help-flash {
-          0%, 100% { box-shadow: 0 0 0 2px rgba(249,115,22,0.9), 0 0 12px 2px rgba(249,115,22,0.5); }
-          50% { box-shadow: 0 0 0 3px rgba(249,115,22,1), 0 0 22px 6px rgba(249,115,22,0.8); }
+          0%, 100% { box-shadow: 0 0 0 2px rgba(59,130,246,0.9), 0 0 12px 2px rgba(59,130,246,0.5); }
+          50% { box-shadow: 0 0 0 3px rgba(59,130,246,1), 0 0 22px 6px rgba(59,130,246,0.8); }
         }
 
         .bsk-help-banner {
@@ -395,7 +395,7 @@ export function HelpRequestOverlay({ request }: Props) {
           background: #fff;
           border-radius: 16px;
           padding: 16px;
-          box-shadow: 0 12px 40px rgba(124,45,18,0.18), 0 2px 8px rgba(0,0,0,0.1);
+          box-shadow: 0 12px 40px rgba(30,64,175,0.18), 0 2px 8px rgba(0,0,0,0.1);
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           transition:
             padding var(--bsk-help-duration) var(--bsk-help-ease),
@@ -617,7 +617,7 @@ export function HelpRequestOverlay({ request }: Props) {
         .bsk-help-btn-continue {
           cursor: pointer;
           border: none;
-          background: #f97316;
+          background: #2563eb;
           border-radius: 8px;
           font-size: 13px;
           font-weight: 600;
@@ -733,7 +733,7 @@ export function HelpRequestOverlay({ request }: Props) {
         <div className="bsk-help-header">
           <img
             src={logoUrl}
-            alt="browser-skill"
+            alt="bkw-ai-saas"
             style={{ width: 22, height: 22, borderRadius: 4 }}
           />
           {isCompact ? (

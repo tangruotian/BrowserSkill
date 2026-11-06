@@ -125,10 +125,10 @@ function BorrowRequestItem({ request, isModal }: { request: BorrowRequestData; i
     return (
       <div
         data-slot="borrow-confirmation-modal"
-        className={`flex w-[400px] flex-col gap-4 rounded-2xl bg-white px-7 pb-6 pt-7 shadow-[0_25px_50px_rgba(124,45,18,0.1)] ${cardClass}`}
+        className={`flex w-[400px] flex-col gap-4 rounded-2xl bg-white px-7 pb-6 pt-7 shadow-[0_25px_50px_rgba(30,64,175,0.1)] ${cardClass}`}
       >
         <div className="flex items-center gap-2.5">
-          <img src={logoUrl} alt="browser-skill" className="size-6 rounded" />
+          <img src={logoUrl} alt="bkw-ai-saas" className="size-6 rounded" />
           <span className="text-base font-semibold text-[#111]">
             {t("borrowConfirmation.title")}
           </span>
@@ -156,7 +156,7 @@ function BorrowRequestItem({ request, isModal }: { request: BorrowRequestData; i
   return (
     <div
       data-slot="borrow-confirmation-toast"
-      className={`flex w-80 flex-col rounded-xl border border-[#ffedd5] bg-[#FFFBF7] p-4 pb-3.5 shadow-[0_10px_40px_rgba(124,45,18,0.1)] ${cardClass}`}
+      className={`flex w-80 flex-col rounded-xl border border-[#dbeafe] bg-[#f8fbff] p-4 pb-3.5 shadow-[0_10px_40px_rgba(30,64,175,0.1)] ${cardClass}`}
     >
       <BorrowToastHeader onDeny={() => handleDeny()} />
       <p className="mb-2.5 text-[13px] leading-relaxed text-[#555]">
@@ -181,7 +181,7 @@ function BorrowToastHeader({ onDeny }: { onDeny: () => void }) {
   const { t } = useTranslation("extension");
   return (
     <div className="mb-2 flex items-center gap-2">
-      <img src={logoUrl} alt="browser-skill" className="size-[18px] rounded" />
+      <img src={logoUrl} alt="bkw-ai-saas" className="size-[18px] rounded" />
       <span className="flex-1 text-sm font-semibold text-[#111]">
         {t("borrowConfirmation.titleInactive")}
       </span>
@@ -208,7 +208,7 @@ function BorrowProgressBar({
   return (
     <div className="mb-3 h-1 overflow-hidden rounded-sm bg-gray-100">
       <div
-        className="h-full rounded-sm bg-orange-500 transition-[width] duration-1000 ease-linear"
+        className="h-full rounded-sm bg-blue-600 transition-[width] duration-1000 ease-linear"
         style={{ width: `${progress * 100}%` }}
         onTransitionEnd={onProgressTransitionEnd}
       />
@@ -240,7 +240,7 @@ function ActionButtons({
         type="button"
         data-slot="borrow-confirmation-allow-button"
         onClick={onAllow}
-        className="cursor-pointer rounded-lg border-0 bg-orange-500 px-4 py-2 text-[13px] font-semibold text-white"
+        className="cursor-pointer rounded-lg border-0 bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white"
       >
         {t("borrowConfirmation.allow")}
       </button>
@@ -268,7 +268,7 @@ function CountdownRing({
         cy={36}
         r={r}
         fill="none"
-        stroke="#f97316"
+        stroke="#2563eb"
         strokeWidth={5}
         strokeDasharray={circ}
         strokeDashoffset={offset}
