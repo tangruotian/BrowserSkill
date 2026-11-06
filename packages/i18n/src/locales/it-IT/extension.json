@@ -49,7 +49,7 @@
     },
     "connectionToggleTitle": "Connessione bkw-ai-saas",
     "controlHintsToggleTitle": "Indicatori di controllo",
-    "controlHintsToggleHint": "Mostra l'indicatore di stato e il bagliore arancione mentre l'agente controlla una pagina.",
+    "controlHintsToggleHint": "Mostra l'indicatore di stato e il bagliore blu mentre l'agente controlla una pagina.",
     "controlHintsInfoLabel": "Informazioni sugli indicatori di controllo",
     "daemonPortLabel": "Porta locale",
     "daemonPortHint": "Connettiti al daemon locale su questa porta. Avvia prima il daemon e fallo restare in ascolto su questa porta. Questa impostazione modifica solo l'indirizzo di connessione dell'estensione, non la configurazione locale della CLI. Salvare una modifica termina le sessioni correnti e si riconnette se la connessione è attivata.",

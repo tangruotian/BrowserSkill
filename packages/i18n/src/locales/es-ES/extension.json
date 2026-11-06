@@ -49,7 +49,7 @@
     },
     "connectionToggleTitle": "Conexión de bkw-ai-saas",
     "controlHintsToggleTitle": "Indicadores de control",
-    "controlHintsToggleHint": "Muestra la etiqueta de estado y el resplandor naranja mientras el agente controla una página.",
+    "controlHintsToggleHint": "Muestra la etiqueta de estado y el resplandor azul mientras el agente controla una página.",
     "controlHintsInfoLabel": "Acerca de los indicadores de control",
     "daemonPortLabel": "Puerto local",
     "daemonPortHint": "Conéctate al daemon local en este puerto. Primero inicia el daemon y haz que escuche en este puerto. Este ajuste solo cambia la dirección de conexión de la extensión, no la configuración local de la CLI. Guardar un cambio finaliza las sesiones actuales y vuelve a conectar si la conexión está activada.",

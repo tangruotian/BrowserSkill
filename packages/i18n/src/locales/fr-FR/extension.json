@@ -49,7 +49,7 @@
     },
     "connectionToggleTitle": "Connexion bkw-ai-saas",
     "controlHintsToggleTitle": "Indices de contrôle",
-    "controlHintsToggleHint": "Affiche la pastille d'état et le halo orange pendant que l'Agent contrôle une page.",
+    "controlHintsToggleHint": "Affiche la pastille d'état et le halo bleu pendant que l'Agent contrôle une page.",
     "controlHintsInfoLabel": "À propos des indices de contrôle",
     "daemonPortLabel": "Port local",
     "daemonPortHint": "Connexion au daemon local sur ce port. Démarrez d'abord le daemon et faites-le écouter sur ce port. Ce paramètre modifie uniquement l'adresse de connexion de l'extension, pas la configuration locale du CLI. Enregistrer une modification met fin aux sessions en cours et reconnecte si la connexion est activée.",

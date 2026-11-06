@@ -110,7 +110,7 @@ export async function setConnectionEnabled(
 }
 
 /**
- * User preference for the in-page control hints (status pill + orange glow
+ * User preference for the in-page control hints (status pill + blue glow
  * shown while the Agent controls a tab). Defaults to shown when unset or
  * non-boolean; when hidden the whole control overlay — including its input
  * blocker — is skipped so the page looks and behaves normally.

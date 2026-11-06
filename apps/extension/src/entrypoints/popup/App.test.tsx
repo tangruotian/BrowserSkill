@@ -666,7 +666,8 @@ describe("control hints toggle", () => {
 
     const info = await screen.findByRole("button", { name: "控制提示说明" });
     expect(info).toBeTruthy();
-    const tooltip = screen.getByText("Agent 控制页面时显示提示条和橙色闪光。");
+    // 提示颜色与 ControlGlow 的蓝色效果一致，避免品牌主题更新后仍描述旧颜色。
+    const tooltip = screen.getByText("Agent 控制页面时显示提示条和蓝色闪光。");
     expect(tooltip.getAttribute("role")).toBe("tooltip");
     // Hidden until the info button is hovered or focused.
     expect(tooltip.className).toContain("opacity-0");

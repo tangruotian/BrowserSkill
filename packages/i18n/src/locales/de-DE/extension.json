@@ -49,7 +49,7 @@
     },
     "connectionToggleTitle": "bkw-ai-saas-Verbindung",
     "controlHintsToggleTitle": "Steuerungshinweise",
-    "controlHintsToggleHint": "Zeigt die Statusanzeige und das orangefarbene Leuchten, während der Agent eine Seite steuert.",
+    "controlHintsToggleHint": "Zeigt die Statusanzeige und das blaue Leuchten, während der Agent eine Seite steuert.",
     "controlHintsInfoLabel": "Über Steuerungshinweise",
     "daemonPortLabel": "Lokaler Port",
     "daemonPortHint": "Verbindung zum lokalen Daemon über diesen Port. Starten Sie zuerst den Daemon und lassen Sie ihn auf diesem Port lauschen. Diese Einstellung ändert nur die Verbindungsadresse der Erweiterung, nicht die lokale CLI-Konfiguration. Das Speichern einer Änderung beendet laufende Sitzungen und stellt die Verbindung neu her, sofern sie aktiviert ist.",

@@ -49,7 +49,7 @@
     },
     "connectionToggleTitle": "bkw-ai-saas 連線",
     "controlHintsToggleTitle": "控制提示",
-    "controlHintsToggleHint": "Agent 控制頁面時顯示提示條和橙色閃光。",
+    "controlHintsToggleHint": "Agent 控制頁面時顯示提示條和藍色閃光。",
     "controlHintsInfoLabel": "控制提示說明",
     "daemonPortLabel": "本機連接埠",
     "daemonPortHint": "透過此連接埠連線本機 daemon，請先啟動 daemon 並讓其監聽此連接埠。此設定僅變更擴充功能的連線位址，不會修改本機 CLI 設定。儲存變更會結束目前的工作階段，並在連線開關開啟時重新連線。",

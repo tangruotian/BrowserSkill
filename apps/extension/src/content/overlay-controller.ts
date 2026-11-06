@@ -22,7 +22,7 @@ export interface OverlayState {
   suppressControlAfterRecord: boolean;
   /**
    * User preference (chrome.storage, toggled from the popup): hide the
-   * control hints — status card, orange glow, and the fallback input
+   * control hints — status card, blue glow, and the fallback input
    * blocker. Not session state; survives overlay resets.
    */
   controlHintsHidden: boolean;

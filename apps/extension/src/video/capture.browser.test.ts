@@ -590,7 +590,7 @@ describe.skipIf(!process.env.BSK_VIDEO_CHROME || !process.env.BSK_VIDEO_BSK)(
                   expect(pixels.at(-1)![2], route).toBeGreaterThan(240);
                   // Sample faster than the 15 fps capture rate, including the
                   // initial frames. Uniform page colors make any control pill
-                  // or orange breathing border visible as a pixel deviation.
+                  // or blue breathing border visible as a pixel deviation.
                   const overlayTimes: number[] = [];
                   for (let time = 0.01; time < duration - 0.01; time += 1 / 30)
                     overlayTimes.push(time);
