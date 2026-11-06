@@ -3,12 +3,7 @@
 ## CLI availability
 
 If `bsk` is not found, check `PATH` and existing installations before installing it.
-The official installers default to `~/.local/bin` (`bsk.exe` on Windows); check
-`BSK_INSTALL_DIR` for a custom location. Reuse an existing installation by fixing
-`PATH` or using the executable's absolute path. If the CLI is missing, follow the
-[installation guide](https://github.com/Tencent/BrowserSkill/blob/main/AGENT_INSTALL.md)
-on the Agent's machine. After installation or a path fix, verify the executable
-with `bsk --version` (or its absolute path with `--version`).
+Use the binary delivered in chrome-web-sdk `output/bin/<target>/`, or its archive, and add that directory to PATH. Verify `bsk webmcp --help`; the plain upstream binary may lack this command. Do not replace this distribution through an upstream installer. Explicit `bsk update` requires a compatible `BSK_UPDATE_MANIFEST_URL`; packaged releases are the default update path.
 
 ## Remote connection
 

@@ -41,6 +41,7 @@ pub mod update;
 pub mod upload;
 pub mod video;
 pub mod waits;
+pub mod webmcp;
 pub mod wheel;
 pub mod window;
 
@@ -219,6 +220,9 @@ pub enum Command {
 
     /// Evaluate a JavaScript expression inside the Agent Window.
     Evaluate(EvaluateArgs),
+
+    /// Discover and invoke structured tools in the current page.
+    Webmcp(webmcp::WebMcpArgs),
 
     /// Execute a versioned, guarded pipeline request.
     Pipeline(pipeline::PipelineArgs),

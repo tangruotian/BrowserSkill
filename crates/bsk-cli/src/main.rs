@@ -106,6 +106,7 @@ fn dispatch(cli: Cli, format: Format) -> Result<(), CliError> {
         Command::Upload(args) => cli::upload::dispatch(args, format),
         Command::Download(args) => cli::download::dispatch(args, format),
         Command::Evaluate(args) => cli::evaluate::dispatch(args, format),
+        Command::Webmcp(args) => cli::webmcp::dispatch(args, format),
         Command::Pipeline(args) => cli::pipeline::dispatch(args, format),
         Command::WaitForNavigation(args) => cli::waits::dispatch_wait_for_navigation(args, format),
         Command::WaitForElement(args) => cli::waits::dispatch_wait_for_element(args, format),

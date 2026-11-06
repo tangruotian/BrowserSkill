@@ -235,6 +235,16 @@ pub struct UpdateArgs {
 }
 
 pub fn dispatch(args: UpdateArgs, format: Format) -> Result<(), CliError> {
+    // 本发行版包含 webmcp 协议，未配置专用更新源时禁止安装上游二进制而丢失功能。
+    if std::env::var("BSK_UPDATE_MANIFEST_URL")
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+    {
+        return Err(CliError::Local(anyhow::anyhow!(
+            "chrome-web-sdk uses output releases; configure BSK_UPDATE_MANIFEST_URL for an explicit compatible source"
+        )));
+    }
     run(args, format).map_err(CliError::Local)
 }
 
