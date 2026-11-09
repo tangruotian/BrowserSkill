@@ -38,7 +38,7 @@ pub struct InstallSkillArgs {
     #[arg(long, value_name = "PATH")]
     pub source: Option<PathBuf>,
 
-    /// Overwrite an existing `browser-skill` skill installation.
+    /// Overwrite an existing `bkw-ai-saas-skill` skill installation.
     #[arg(long)]
     pub force: bool,
 

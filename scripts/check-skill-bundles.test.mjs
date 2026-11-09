@@ -51,18 +51,19 @@ test("LF and CRLF multiline metadata agree without changing resource bytes", (t)
 });
 
 test("both authored skill packages validate in LF and CRLF checkouts", (t) => {
-  for (const [path, maxEntryBytes] of [
-    ["crates/bsk-cli/skill", 7_100],
-    ["packages/dsh-plugin-browserskill/skill", 4_500],
+  for (const [path, maxEntryBytes, expectedName] of [
+    ["crates/bsk-cli/skill", 7_100, "bkw-ai-saas-skill"],
+    ["packages/dsh-plugin-browserskill/skill", 4_500, "browser-skill"],
   ]) {
     const original = validateSkillDirectory(fileURLToPath(new URL(`../${path}`, import.meta.url)), {
       maxEntryBytes,
+      expectedName,
     });
     for (const newline of ["\n", "\r\n"]) {
       const files = Object.fromEntries(
         [...original.files].map(([name, content]) => [name, content.replace(/\r?\n/g, newline)]),
       );
-      const skill = validateSkillDirectory(fixture(t, files), { maxEntryBytes });
+      const skill = validateSkillDirectory(fixture(t, files), { maxEntryBytes, expectedName });
       assert.equal(skill.name, original.name);
       assert.equal(skill.description, original.description);
       assert.deepEqual(Object.fromEntries(skill.files), files);

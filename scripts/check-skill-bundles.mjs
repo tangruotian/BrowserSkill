@@ -11,13 +11,14 @@ assert(
   !existsSync(new URL("skill", root)),
   "Maintain the universal skill only in crates/bsk-cli/skill",
 );
-for (const [path, maxEntryBytes, browserTools] of [
-  ["crates/bsk-cli/skill", 7_100],
-  ["packages/dsh-plugin-browserskill/skill", 4_500, DSH_BROWSER_TOOLS],
+for (const [path, maxEntryBytes, browserTools, expectedName] of [
+  ["crates/bsk-cli/skill", 7_100, undefined, "bkw-ai-saas-skill"],
+  ["packages/dsh-plugin-browserskill/skill", 4_500, DSH_BROWSER_TOOLS, "browser-skill"],
 ]) {
   const { files } = validateSkillDirectory(fileURLToPath(new URL(path, root)), {
     maxEntryBytes,
     browserTools,
+    expectedName,
   });
   console.log(
     `${path}: valid (${files.size} files, ${Buffer.byteLength(files.get("SKILL.md"))} entry bytes)`,

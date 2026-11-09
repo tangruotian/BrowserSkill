@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-export function validateSkillDirectory(directory, { maxEntryBytes, browserTools } = {}) {
+// expectedName：通用 CLI skill 在 bkw-ai-saas 发行版中改名为 bkw-ai-saas-skill，
+// DSH 插件 skill 保持上游的 browser-skill；由调用方声明，避免一处改名误伤另一处。
+export function validateSkillDirectory(
+  directory,
+  { maxEntryBytes, browserTools, expectedName = "browser-skill" } = {},
+) {
   const root = resolve(directory);
   const files = new Map();
   function walk(dir) {
@@ -30,7 +35,7 @@ export function validateSkillDirectory(directory, { maxEntryBytes, browserTools 
     .replace(/^[|>]\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
-  assert(name === "browser-skill" && description, `Invalid skill metadata in ${root}`);
+  assert(name === expectedName && description, `Invalid skill metadata in ${root}`);
   if (maxEntryBytes) {
     assert(
       Buffer.byteLength(source) <= maxEntryBytes,

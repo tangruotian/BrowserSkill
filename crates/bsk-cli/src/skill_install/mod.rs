@@ -20,7 +20,11 @@ use serde::{Deserialize, Serialize};
 pub use bundle::SkillBundle;
 pub use harness::{HarnessId, HarnessReport, all_harness_reports, parse_harness_id};
 
-pub const SKILL_DIR_NAME: &str = "browser-skill";
+/// bkw-ai-saas 发行版的 skill 安装目录名，必须与 `skill/SKILL.md` 的 `name` 一致：
+/// Agent Skills 规范要求目录名等于 name，否则部分 harness 不加载。
+/// 与官方 BrowserSkill 的 `browser-skill` 区分，两者共存时互不覆盖；
+/// 旧的 `browser-skill` 目录不再由本二进制安装或自动更新，也不会被删除。
+pub const SKILL_DIR_NAME: &str = "bkw-ai-saas-skill";
 pub const DEFAULT_SKILL_MD: &str = include_str!("../../skill/SKILL.md");
 pub const SOURCE_MARKER_FILE: &str = ".bsk-source";
 pub const SOURCE_BUNDLED: &str = "bundled\n";
@@ -331,7 +335,7 @@ pub fn run_interactive_prompt(reports: &[HarnessReport]) -> Result<Vec<HarnessId
 
     eprintln!(
         "\n{}",
-        style(" browser-skill · Install Agent Skill")
+        style(" bkw-ai-saas-skill · Install Agent Skill")
             .bold()
             .yellow()
     );

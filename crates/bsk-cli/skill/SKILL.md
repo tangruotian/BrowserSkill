@@ -1,5 +1,5 @@
 ---
-name: browser-skill
+name: bkw-ai-saas-skill
 description: Operate the user's logged-in Chromium browser with the bsk CLI and extension. Discover and invoke page SDK or WebMCP tools, with DOM interaction when no suitable tool exists.
 ---
 
