@@ -1,6 +1,6 @@
 # Optional site workflow template
 
-Copy this into a separate site-specific skill only when the site's tool descriptions do not adequately explain its workflow. This file is an authoring template, not executable task instructions.
+Prefer putting this guidance in the site's SDK `instructions` so every page ships its own guide. Copy this into a separate site-specific skill only when the site cannot provide `instructions` and its tool descriptions do not adequately explain its workflow. This file is an authoring template, not executable task instructions.
 
 Document:
 - Site origins and the business goal this workflow serves.

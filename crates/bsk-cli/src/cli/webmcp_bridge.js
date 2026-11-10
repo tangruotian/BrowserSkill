@@ -91,8 +91,13 @@ async function webmcpBridge(request) {
         const id = crypto.randomUUID();
         while (state.bindings.size >= 32) state.bindings.delete(state.bindings.keys().next().value);
         state.bindings.set(id, { session: request.session_id, api, mode, signature });
+        // bkw-ai-saas：SDK 可在 app.instructions 提供站点级说明，提升为顶层字段便于 Agent 先读。
+        // 只接受非空字符串；它属于页面数据，同样经过 clean 脱敏，且已计入目录签名，变化后旧绑定失效。
+        const { instructions, ...app } = mode === 'sdk' && catalog.app && typeof catalog.app === 'object' ? catalog.app : {};
+        const guide = typeof instructions === 'string' ? instructions.trim() : '';
         return { ...base, binding_id: id, tools: descriptions,
-          ...(mode === 'sdk' ? { app: catalog.app, catalog_version: catalog.catalogVersion, context: catalog.context } : {}) };
+          ...(mode === 'sdk' ? { app, catalog_version: catalog.catalogVersion, context: catalog.context,
+            ...(guide ? { instructions: guide } : {}) } : {}) };
       }
       if (binding.signature !== signature) return fail('stale_catalog', '工具目录或可用性已变化，请重新发现；未派发。');
       const matches = tools.filter(t => t.name === request.name);
