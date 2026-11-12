@@ -708,5 +708,55 @@
     "agentHint": "开始任务前告诉 Agent 需要录制，它会自动启停录制。你可以在这里查看状态、预览和保存视频。",
     "manual": "手动录制正在运行的任务",
     "copyFailed": "复制提示词失败，请重试。"
+  },
+  "pageTools": {
+    "title": "页面能力",
+    "cardDesc": "查看当前页面声明给 Agent 的工具",
+    "description": "检测当前标签页是否接入了 bkw-ai-saas SDK 或浏览器 WebMCP，并列出页面声明的工具。",
+    "detecting": "正在检测…",
+    "refresh": "重新检测",
+    "scope": "只读取当前标签页的顶层页面，不会调用任何工具。工具描述由页面提供，仅供参考。",
+    "none": "未检测到页面能力。页面可能未接入，或应用尚未加载完成，可稍后重新检测。",
+    "insecure": "当前页面不是安全上下文（HTTPS 或 localhost），Agent 无法调用页面工具。",
+    "errors": {
+      "noTab": "没有找到当前标签页。",
+      "restricted": "浏览器不允许扩展读取此页面（例如 chrome:// 页面或应用商店）。",
+      "failed": "检测失败，页面可能正在跳转，请稍后重新检测。"
+    },
+    "channel": {
+      "label": "Agent 调用通道",
+      "sdk": "页面 SDK",
+      "native": "浏览器 WebMCP",
+      "legacy": "WebMCP 测试接口",
+      "none": "不可调用"
+    },
+    "channelHint": {
+      "sdk": "Agent 通过 bsk webmcp 调用页面 SDK 声明的工具。",
+      "native": "页面未接入 SDK，Agent 将调用浏览器 WebMCP 注册的工具。",
+      "legacy": "Agent 将通过实验性的 WebMCP 测试接口调用工具。",
+      "none": "没有 Agent 可调用的页面工具，Agent 只能使用通用页面操作。"
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "页面存在 SDK 桥接，但版本 {{version}} 与当前扩展不兼容，Agent 不会使用它。",
+      "error": "读取 SDK 工具目录失败：{{message}}",
+      "instructions": "站点使用说明",
+      "noInstructions": "页面未提供站点使用说明。"
+    },
+    "webmcp": {
+      "title": "浏览器 WebMCP",
+      "unlisted": "页面已注册 WebMCP，但浏览器未提供读取工具列表的接口，无法显示具体工具。",
+      "error": "读取 WebMCP 工具列表失败：{{message}}"
+    },
+    "tools": "工具（{{count}}）",
+    "noTools": "页面当前没有声明工具。",
+    "truncated": "仅显示前 {{count}} 个工具。",
+    "unavailable": "不可用",
+    "kind": {
+      "query": "查询",
+      "ui": "界面",
+      "draft": "草稿",
+      "submit": "提交"
+    }
   }
 }

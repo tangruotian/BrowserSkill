@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "Seitenfunktionen",
+    "cardDesc": "Tools anzeigen, die diese Seite für Agents bereitstellt",
+    "description": "Prüft, ob der aktuelle Tab das bkw-ai-saas SDK oder Browser-WebMCP nutzt, und listet die von der Seite deklarierten Tools auf.",
+    "detecting": "Wird erkannt…",
+    "refresh": "Erneut prüfen",
+    "scope": "Liest nur die oberste Seite des aktuellen Tabs und ruft keine Tools auf. Tool-Beschreibungen stammen von der Seite und dienen nur zur Orientierung.",
+    "none": "Keine Seitenfunktionen erkannt. Die Seite ist eventuell nicht angebunden oder die App lädt noch. Bitte später erneut prüfen.",
+    "insecure": "Diese Seite ist kein sicherer Kontext (HTTPS oder localhost), daher können Agents ihre Tools nicht aufrufen.",
+    "errors": {
+      "noTab": "Kein aktiver Tab gefunden.",
+      "restricted": "Der Browser erlaubt Erweiterungen nicht, diese Seite zu lesen (z. B. chrome://-Seiten oder den Web Store).",
+      "failed": "Erkennung fehlgeschlagen. Die Seite lädt eventuell neu; bitte später erneut prüfen."
+    },
+    "channel": {
+      "label": "Agent-Kanal",
+      "sdk": "Seiten-SDK",
+      "native": "Browser-WebMCP",
+      "legacy": "WebMCP-Test-API",
+      "none": "Nicht aufrufbar"
+    },
+    "channelHint": {
+      "sdk": "Agents rufen die vom Seiten-SDK deklarierten Tools über bsk webmcp auf.",
+      "native": "Die Seite hat kein SDK; Agents rufen die bei Browser-WebMCP registrierten Tools auf.",
+      "legacy": "Agents rufen Tools über die experimentelle WebMCP-Test-API auf.",
+      "none": "Keine Seiten-Tools aufrufbar; Agents können nur allgemeine Seitenaktionen nutzen."
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "Die Seite hat eine SDK-Brücke, aber Version {{version}} ist mit dieser Erweiterung nicht kompatibel; Agents nutzen sie nicht.",
+      "error": "Der SDK-Toolkatalog konnte nicht gelesen werden: {{message}}",
+      "instructions": "Nutzungshinweise der Website",
+      "noInstructions": "Die Seite stellt keine Nutzungshinweise bereit."
+    },
+    "webmcp": {
+      "title": "Browser-WebMCP",
+      "unlisted": "Die Seite registriert WebMCP-Tools, aber der Browser bietet keine API zum Auflisten.",
+      "error": "Die WebMCP-Toolliste konnte nicht gelesen werden: {{message}}"
+    },
+    "tools": "Tools ({{count}})",
+    "noTools": "Die Seite deklariert derzeit keine Tools.",
+    "truncated": "Nur die ersten {{count}} Tools werden angezeigt.",
+    "unavailable": "Nicht verfügbar",
+    "kind": {
+      "query": "Abfrage",
+      "ui": "UI",
+      "draft": "Entwurf",
+      "submit": "Absenden"
+    }
   }
 }

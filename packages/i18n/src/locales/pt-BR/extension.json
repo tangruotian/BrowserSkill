@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "Ferramentas da página",
+    "cardDesc": "Veja as ferramentas que esta página oferece aos agentes",
+    "description": "Verifica se a aba atual usa o SDK bkw-ai-saas ou o WebMCP do navegador e lista as ferramentas declaradas pela página.",
+    "detecting": "Detectando…",
+    "refresh": "Detectar novamente",
+    "scope": "Lê apenas a página principal da aba atual e não chama nenhuma ferramenta. As descrições vêm da página e servem apenas de referência.",
+    "none": "Nenhuma ferramenta detectada. A página pode não estar integrada ou o app ainda está carregando; tente novamente em instantes.",
+    "insecure": "Esta página não é um contexto seguro (HTTPS ou localhost), então os agentes não podem chamar suas ferramentas.",
+    "errors": {
+      "noTab": "Nenhuma aba ativa encontrada.",
+      "restricted": "O navegador não permite que extensões leiam esta página (por exemplo, páginas chrome:// ou a Chrome Web Store).",
+      "failed": "A detecção falhou. A página pode estar navegando; tente novamente em instantes."
+    },
+    "channel": {
+      "label": "Canal do agente",
+      "sdk": "SDK da página",
+      "native": "WebMCP do navegador",
+      "legacy": "API de teste do WebMCP",
+      "none": "Não chamável"
+    },
+    "channelHint": {
+      "sdk": "Os agentes chamam as ferramentas declaradas pelo SDK da página via bsk webmcp.",
+      "native": "A página não tem SDK; os agentes chamarão as ferramentas registradas no WebMCP do navegador.",
+      "legacy": "Os agentes chamarão as ferramentas pela API de teste experimental do WebMCP.",
+      "none": "Nenhuma ferramenta chamável; os agentes só podem usar ações genéricas na página."
+    },
+    "sdk": {
+      "title": "SDK bkw-ai-saas",
+      "incompatible": "A página tem uma ponte do SDK, mas a versão {{version}} não é compatível com esta extensão, então os agentes não a usarão.",
+      "error": "Não foi possível ler o catálogo de ferramentas do SDK: {{message}}",
+      "instructions": "Guia de uso do site",
+      "noInstructions": "A página não fornece um guia de uso."
+    },
+    "webmcp": {
+      "title": "WebMCP do navegador",
+      "unlisted": "A página registra ferramentas WebMCP, mas o navegador não oferece uma API para listá-las.",
+      "error": "Não foi possível ler a lista de ferramentas WebMCP: {{message}}"
+    },
+    "tools": "Ferramentas ({{count}})",
+    "noTools": "A página não declara ferramentas no momento.",
+    "truncated": "Mostrando apenas as primeiras {{count}} ferramentas.",
+    "unavailable": "Indisponível",
+    "kind": {
+      "query": "Consulta",
+      "ui": "Interface",
+      "draft": "Rascunho",
+      "submit": "Envio"
+    }
   }
 }

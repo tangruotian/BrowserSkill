@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "Page tools",
+    "cardDesc": "See the tools this page exposes to Agents",
+    "description": "Checks whether the current tab uses the bkw-ai-saas SDK or browser WebMCP and lists the tools the page declares.",
+    "detecting": "Detecting…",
+    "refresh": "Detect again",
+    "scope": "Reads only the current tab's top-level page and never calls a tool. Tool descriptions come from the page and are for reference only.",
+    "none": "No page tools detected. The page may not integrate them, or the app may still be loading. Try again shortly.",
+    "insecure": "This page is not a secure context (HTTPS or localhost), so Agents cannot call its tools.",
+    "errors": {
+      "noTab": "No active tab found.",
+      "restricted": "The browser does not allow extensions to read this page (for example chrome:// pages or the Web Store).",
+      "failed": "Detection failed. The page may be navigating; try again shortly."
+    },
+    "channel": {
+      "label": "Agent channel",
+      "sdk": "Page SDK",
+      "native": "Browser WebMCP",
+      "legacy": "WebMCP testing API",
+      "none": "Not callable"
+    },
+    "channelHint": {
+      "sdk": "Agents call the tools declared by the page SDK through bsk webmcp.",
+      "native": "The page has no SDK; Agents will call tools registered with browser WebMCP.",
+      "legacy": "Agents will call tools through the experimental WebMCP testing API.",
+      "none": "No page tools are callable; Agents can only use generic page actions."
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "The page has an SDK bridge, but version {{version}} is incompatible with this extension, so Agents will not use it.",
+      "error": "Could not read the SDK tool catalog: {{message}}",
+      "instructions": "Site usage guide",
+      "noInstructions": "The page provides no site usage guide."
+    },
+    "webmcp": {
+      "title": "Browser WebMCP",
+      "unlisted": "The page registers WebMCP tools, but the browser offers no API to list them.",
+      "error": "Could not read the WebMCP tool list: {{message}}"
+    },
+    "tools": "Tools ({{count}})",
+    "noTools": "The page currently declares no tools.",
+    "truncated": "Showing the first {{count}} tools only.",
+    "unavailable": "Unavailable",
+    "kind": {
+      "query": "Query",
+      "ui": "UI",
+      "draft": "Draft",
+      "submit": "Submit"
+    }
   }
 }

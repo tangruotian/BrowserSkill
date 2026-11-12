@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "Outils de la page",
+    "cardDesc": "Voir les outils que cette page expose aux agents",
+    "description": "Vérifie si l’onglet actuel utilise le SDK bkw-ai-saas ou WebMCP du navigateur, et liste les outils déclarés par la page.",
+    "detecting": "Détection…",
+    "refresh": "Détecter à nouveau",
+    "scope": "Lit uniquement la page principale de l’onglet actuel et n’appelle aucun outil. Les descriptions proviennent de la page et sont fournies à titre indicatif.",
+    "none": "Aucun outil de page détecté. La page n’est peut-être pas intégrée ou l’application est encore en chargement ; réessayez dans un instant.",
+    "insecure": "Cette page n’est pas un contexte sécurisé (HTTPS ou localhost) : les agents ne peuvent pas appeler ses outils.",
+    "errors": {
+      "noTab": "Aucun onglet actif trouvé.",
+      "restricted": "Le navigateur n’autorise pas les extensions à lire cette page (par exemple les pages chrome:// ou le Chrome Web Store).",
+      "failed": "La détection a échoué. La page est peut-être en cours de navigation ; réessayez dans un instant."
+    },
+    "channel": {
+      "label": "Canal de l’agent",
+      "sdk": "SDK de la page",
+      "native": "WebMCP du navigateur",
+      "legacy": "API de test WebMCP",
+      "none": "Non appelable"
+    },
+    "channelHint": {
+      "sdk": "Les agents appellent les outils déclarés par le SDK de la page via bsk webmcp.",
+      "native": "La page n’a pas de SDK ; les agents appelleront les outils enregistrés auprès de WebMCP du navigateur.",
+      "legacy": "Les agents appelleront les outils via l’API de test WebMCP expérimentale.",
+      "none": "Aucun outil de page n’est appelable ; les agents ne peuvent utiliser que des actions génériques."
+    },
+    "sdk": {
+      "title": "SDK bkw-ai-saas",
+      "incompatible": "La page possède un pont SDK, mais la version {{version}} est incompatible avec cette extension ; les agents ne l’utiliseront pas.",
+      "error": "Impossible de lire le catalogue d’outils du SDK : {{message}}",
+      "instructions": "Guide d’utilisation du site",
+      "noInstructions": "La page ne fournit aucun guide d’utilisation."
+    },
+    "webmcp": {
+      "title": "WebMCP du navigateur",
+      "unlisted": "La page enregistre des outils WebMCP, mais le navigateur ne fournit aucune API pour les lister.",
+      "error": "Impossible de lire la liste des outils WebMCP : {{message}}"
+    },
+    "tools": "Outils ({{count}})",
+    "noTools": "La page ne déclare actuellement aucun outil.",
+    "truncated": "Seuls les {{count}} premiers outils sont affichés.",
+    "unavailable": "Indisponible",
+    "kind": {
+      "query": "Requête",
+      "ui": "Interface",
+      "draft": "Brouillon",
+      "submit": "Envoi"
+    }
   }
 }

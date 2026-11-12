@@ -15,6 +15,7 @@ import { DebugPanel } from "./debug-panel";
 import { POPUP_FEATURES, type PopupView } from "./features";
 import { InteractionSettings } from "./interaction-settings";
 import { LongScreenshot } from "./long-screenshot";
+import { PageToolsPanel } from "./page-tools-panel";
 import { SettingInfo } from "./setting-info";
 import { Switch } from "./switch";
 import { type PopupStatusState, useConnectionState } from "./use-connection-state";
@@ -135,7 +136,9 @@ export function App() {
               ? t("longScreenshot.title")
               : view === "audit"
                 ? t("audit.title")
-                : t("popup.brandName");
+                : view === "page-tools"
+                  ? t("pageTools.title")
+                  : t("popup.brandName");
 
   return (
     <main
@@ -365,6 +368,7 @@ export function App() {
         </section>
       )}
 
+      {view === "page-tools" && <PageToolsPanel />}
       {view === "long-screenshot" && <LongScreenshot />}
       {view === "audit" && <AuditPanel />}
       {view === "debug" && <DebugPanel connected={connectionLive} />}

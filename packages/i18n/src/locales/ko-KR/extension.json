@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "페이지 기능",
+    "cardDesc": "이 페이지가 Agent에 제공하는 도구 보기",
+    "description": "현재 탭이 bkw-ai-saas SDK 또는 브라우저 WebMCP를 사용하는지 감지하고 페이지가 선언한 도구를 보여 줍니다.",
+    "detecting": "감지 중…",
+    "refresh": "다시 감지",
+    "scope": "현재 탭의 최상위 페이지만 읽으며 도구를 호출하지 않습니다. 도구 설명은 페이지가 제공하며 참고용입니다.",
+    "none": "페이지 기능이 감지되지 않았습니다. 연동되지 않았거나 앱이 아직 로드 중일 수 있으니 잠시 후 다시 감지하세요.",
+    "insecure": "이 페이지는 보안 컨텍스트(HTTPS 또는 localhost)가 아니어서 Agent가 도구를 호출할 수 없습니다.",
+    "errors": {
+      "noTab": "활성 탭을 찾을 수 없습니다.",
+      "restricted": "브라우저가 확장 프로그램의 이 페이지 읽기를 허용하지 않습니다(예: chrome:// 페이지, 웹 스토어).",
+      "failed": "감지에 실패했습니다. 페이지가 이동 중일 수 있으니 잠시 후 다시 감지하세요."
+    },
+    "channel": {
+      "label": "Agent 호출 경로",
+      "sdk": "페이지 SDK",
+      "native": "브라우저 WebMCP",
+      "legacy": "WebMCP 테스트 API",
+      "none": "호출 불가"
+    },
+    "channelHint": {
+      "sdk": "Agent는 bsk webmcp로 페이지 SDK가 선언한 도구를 호출합니다.",
+      "native": "페이지에 SDK가 없어 Agent는 브라우저 WebMCP에 등록된 도구를 호출합니다.",
+      "legacy": "Agent는 실험용 WebMCP 테스트 API로 도구를 호출합니다.",
+      "none": "호출할 수 있는 페이지 도구가 없어 Agent는 일반 페이지 조작만 사용할 수 있습니다."
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "SDK 브리지가 있지만 버전 {{version}}이(가) 이 확장 프로그램과 호환되지 않아 Agent가 사용하지 않습니다.",
+      "error": "SDK 도구 카탈로그를 읽지 못했습니다: {{message}}",
+      "instructions": "사이트 사용 안내",
+      "noInstructions": "페이지가 사이트 사용 안내를 제공하지 않습니다."
+    },
+    "webmcp": {
+      "title": "브라우저 WebMCP",
+      "unlisted": "페이지가 WebMCP 도구를 등록했지만 브라우저에 목록을 읽는 API가 없습니다.",
+      "error": "WebMCP 도구 목록을 읽지 못했습니다: {{message}}"
+    },
+    "tools": "도구 ({{count}})",
+    "noTools": "페이지에 현재 선언된 도구가 없습니다.",
+    "truncated": "처음 {{count}}개 도구만 표시합니다.",
+    "unavailable": "사용 불가",
+    "kind": {
+      "query": "조회",
+      "ui": "UI",
+      "draft": "초안",
+      "submit": "제출"
+    }
   }
 }

@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "頁面能力",
+    "cardDesc": "查看目前頁面提供給 Agent 的工具",
+    "description": "檢測目前分頁是否接入 bkw-ai-saas SDK 或瀏覽器 WebMCP，並列出頁面宣告的工具。",
+    "detecting": "正在檢測…",
+    "refresh": "重新檢測",
+    "scope": "只讀取目前分頁的頂層頁面，不會呼叫任何工具。工具描述由頁面提供，僅供參考。",
+    "none": "未檢測到頁面能力。頁面可能未接入，或應用程式尚未載入完成，可稍後重新檢測。",
+    "insecure": "目前頁面不是安全內容（HTTPS 或 localhost），Agent 無法呼叫頁面工具。",
+    "errors": {
+      "noTab": "找不到目前分頁。",
+      "restricted": "瀏覽器不允許擴充功能讀取此頁面（例如 chrome:// 頁面或線上應用程式商店）。",
+      "failed": "檢測失敗，頁面可能正在跳轉，請稍後重新檢測。"
+    },
+    "channel": {
+      "label": "Agent 呼叫通道",
+      "sdk": "頁面 SDK",
+      "native": "瀏覽器 WebMCP",
+      "legacy": "WebMCP 測試介面",
+      "none": "無法呼叫"
+    },
+    "channelHint": {
+      "sdk": "Agent 透過 bsk webmcp 呼叫頁面 SDK 宣告的工具。",
+      "native": "頁面未接入 SDK，Agent 將呼叫瀏覽器 WebMCP 註冊的工具。",
+      "legacy": "Agent 將透過實驗性的 WebMCP 測試介面呼叫工具。",
+      "none": "沒有 Agent 可呼叫的頁面工具，Agent 只能使用通用頁面操作。"
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "頁面存在 SDK 橋接，但版本 {{version}} 與目前擴充功能不相容，Agent 不會使用它。",
+      "error": "讀取 SDK 工具目錄失敗：{{message}}",
+      "instructions": "網站使用說明",
+      "noInstructions": "頁面未提供網站使用說明。"
+    },
+    "webmcp": {
+      "title": "瀏覽器 WebMCP",
+      "unlisted": "頁面已註冊 WebMCP，但瀏覽器未提供讀取工具清單的介面，無法顯示具體工具。",
+      "error": "讀取 WebMCP 工具清單失敗：{{message}}"
+    },
+    "tools": "工具（{{count}}）",
+    "noTools": "頁面目前沒有宣告工具。",
+    "truncated": "僅顯示前 {{count}} 個工具。",
+    "unavailable": "無法使用",
+    "kind": {
+      "query": "查詢",
+      "ui": "介面",
+      "draft": "草稿",
+      "submit": "提交"
+    }
   }
 }

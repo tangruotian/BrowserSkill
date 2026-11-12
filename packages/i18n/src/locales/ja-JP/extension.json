@@ -708,5 +708,55 @@
     "agentHint": "Tell your agent to record before starting the task. It will start and stop recording for you; preview and save the result here.",
     "manual": "Record a running task manually",
     "copyFailed": "Could not copy the prompt. Please try again."
+  },
+  "pageTools": {
+    "title": "ページ機能",
+    "cardDesc": "このページが Agent に公開しているツールを確認",
+    "description": "現在のタブが bkw-ai-saas SDK またはブラウザーの WebMCP に対応しているかを検出し、ページが宣言したツールを一覧表示します。",
+    "detecting": "検出中…",
+    "refresh": "再検出",
+    "scope": "現在のタブのトップレベルページのみを読み取り、ツールは呼び出しません。ツールの説明はページが提供する参考情報です。",
+    "none": "ページ機能は検出されませんでした。未対応か、アプリの読み込みが完了していない可能性があります。しばらくしてから再検出してください。",
+    "insecure": "このページは安全なコンテキスト（HTTPS または localhost）ではないため、Agent はツールを呼び出せません。",
+    "errors": {
+      "noTab": "アクティブなタブが見つかりません。",
+      "restricted": "ブラウザーにより、拡張機能はこのページを読み取れません（chrome:// ページやウェブストアなど）。",
+      "failed": "検出に失敗しました。ページが遷移中の可能性があります。しばらくしてから再検出してください。"
+    },
+    "channel": {
+      "label": "Agent の呼び出し経路",
+      "sdk": "ページ SDK",
+      "native": "ブラウザー WebMCP",
+      "legacy": "WebMCP テスト API",
+      "none": "呼び出し不可"
+    },
+    "channelHint": {
+      "sdk": "Agent は bsk webmcp 経由でページ SDK が宣言したツールを呼び出します。",
+      "native": "ページに SDK がないため、Agent はブラウザー WebMCP に登録されたツールを呼び出します。",
+      "legacy": "Agent は試験的な WebMCP テスト API 経由でツールを呼び出します。",
+      "none": "呼び出せるページツールがないため、Agent は汎用的なページ操作のみ使用できます。"
+    },
+    "sdk": {
+      "title": "bkw-ai-saas SDK",
+      "incompatible": "SDK ブリッジがありますが、バージョン {{version}} はこの拡張機能と互換性がないため、Agent は使用しません。",
+      "error": "SDK のツールカタログを読み取れませんでした: {{message}}",
+      "instructions": "サイトの利用ガイド",
+      "noInstructions": "ページはサイトの利用ガイドを提供していません。"
+    },
+    "webmcp": {
+      "title": "ブラウザー WebMCP",
+      "unlisted": "ページは WebMCP ツールを登録していますが、ブラウザーに一覧を取得する API がありません。",
+      "error": "WebMCP のツール一覧を読み取れませんでした: {{message}}"
+    },
+    "tools": "ツール（{{count}}）",
+    "noTools": "ページは現在ツールを宣言していません。",
+    "truncated": "最初の {{count}} 件のみ表示しています。",
+    "unavailable": "利用不可",
+    "kind": {
+      "query": "照会",
+      "ui": "UI",
+      "draft": "下書き",
+      "submit": "送信"
+    }
   }
 }
